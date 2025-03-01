@@ -1,5 +1,5 @@
 from gensim.models import LdaModel
-from preprocess import LDA_preprocess, basic_preprocess
+from preprocessing import LDA_pp, basic_pp
 import pandas as pd
 from pprint import pprint as pp
 
@@ -9,11 +9,10 @@ def train_LDA(
         dct,
         chunksize: int = 40000,
         iterations: int = 10,
-        num_topics: int = 10,
+        num_topics: int = 100,
         passes: int = 5,
         eval_every: int = None):
     
-
     print(f"Number of tokens: {len(dct)}")
     print(f"Number of docs: {len(bow_data)}")
     
@@ -40,22 +39,20 @@ def LDA_coherence(model, n_topics, corpus):
     top_topics = model.top_topics(corpus)
     avg_topic_coherence = sum([t[1] for t in top_topics]) / n_topics
 
-    print('Average topic coherence: %.4f.' % avg_topic_coherence)
-    pp(f"Top topics: {list(top_topics)}")
-    return avg_topic_coherence
+    return top_topics, avg_topic_coherence
 
 
 def main():
 
-    df = pd.read_csv(filepath_or_buffer="UN_speeches/UNGDC_1946-2023.csv")[:100]
+    df = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")[:500]
     texts_list = df["text"].tolist()
 
-    processed_data = basic_preprocess(texts_list)
-    dct, bow_data = LDA_preprocess(processed_data)
+    processed_data = basic_pp(texts_list)
+    dct, bow_data = LDA_pp(processed_data)
 
     # Hyperparams
     ITERATIONS = 400
-    N_TOPICS = 10
+    N_TOPICS = 100
     PASSES = 20
 
     model = train_LDA(
@@ -67,7 +64,10 @@ def main():
                 eval_every = None
                 )
     
-    coherence = LDA_coherence(model, N_TOPICS, corpus=bow_data)
+    top_topics, avg_coherence = LDA_coherence(model, N_TOPICS, corpus=bow_data)
+    print('Average topic coherence: %.4f.' % avg_coherence)
+    pp("\nTop topics:")
+    pp(top_topics)
 
 if __name__ == "__main__":
     main()
