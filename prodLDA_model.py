@@ -21,8 +21,9 @@ class HiddenToLogNormal(nn.Module):
     def __init__(self, hidden_size, num_topics):
         super().__init__()
         self.fcmu = nn.Linear(hidden_size, num_topics)
-        self.fclv = nn.Linear(hidden_size, num_topics)
         self.bnmu = nn.BatchNorm1d(num_topics)
+        
+        self.fclv = nn.Linear(hidden_size, num_topics)
         self.bnlv = nn.BatchNorm1d(num_topics)
 
     def forward(self, hidden):
@@ -39,7 +40,7 @@ class HiddenToDirichlet(nn.Module):
         self.bn = nn.BatchNorm1d(num_topics)
 
     def forward(self, hidden):
-        alphas = self.bn(self.fc(hidden)).exp().cpu()
+        alphas = F.softplus(self.fc(hidden)) + 0.1
         dist = Dirichlet(alphas)
         return dist
 
@@ -49,11 +50,12 @@ class Decoder(nn.Module):
         super().__init__()
         self.fc = nn.Linear(num_topics, vocab_size)
         self.bn = nn.BatchNorm1d(vocab_size)
-        self.drop = nn.Dropout(dropout)
+        self.drop = nn.Dropout(dropout) 
 
     def forward(self, inputs):
         inputs = self.drop(inputs)
         return F.log_softmax(self.bn(self.fc(inputs)), dim=1)
+        # logarithmic probabilities align better to NLL loss (reconstruction loss)
 
 
 class ProdLDA(nn.Module):

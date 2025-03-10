@@ -1,0 +1,43 @@
+<Examples>
+The following are examples of succesful executions of your task on selected samples. The number of topics was set at 3 in all the examples.
+    <Example>
+        <Input>
+        """The struggle against climate change is not just an environmental issue. It is also a matter of fundamental development. 
+        It is so because the adverse impact of climate change endangers economic and social progress. This is most certainly the case for small
+        island States, which are widely acknowledged to be among the most vulnerable and the least able to adapt. The world community’s response to climate change 
+        therefore requires significant, long-term changes in economic and social behaviour. The United Nations has an urgent and vital responsibility in this task as well."""</Input>
+        <Output>
+        Topic 1: Climate change, Topic 2: Sustainability, Topic 3: Danger
+        </Output>
+    </Example>
+    <Example>
+        <Input>
+        """Israeli aggression in the south of Lebanon, the victims of which are the civilian population and Palestinian refugees, must cease: 
+        longsuffering southern Lebanon should be protected from Israeli aggressors. The continued interference of Zionists in the internal affairs of the Lebanon, 
+        their attempts to split the country and to annex its southern part, should be resolutely condemned and effectively prevented.
+        The people and the Government of the Democratic Republic of Afghanistan reject with indignation the decision of the Tel Aviv Knesset 
+        declaring Jerusalem to be the eternal and indivisible capital of Israel. It is a flagrant violation of all the relevant resolutions of the United Nations, 
+        including the resolution approved by the recent emergency special session on the Palestinian question. The outright and blatant annexation by Israel of a city 
+        most sacred to all Moslems and followers of other faiths cannot leave silent or indifferent any Moslems or any peace-loving people throughout the world."""
+        </Input>
+        <Output>
+        Topic 1: Lebanon invasion, Topic 2: Middle East, Topic 3: Conflict
+        </Output>    
+    </Example>
+    <Example>
+        <Input>
+        """The convening of the third special session of the General Assembly devoted to disarmament here in New York earlier this year represented yet another multilateral effort 
+        to advance the cause of disarmament. The failure of that session was a source of great disappointment to many of us because it was a blow against multilateralism as well. 
+        We had hoped that progress at that conference would give further encouragement to the Soviet Union and the United States to undertake further disarmament efforts. We should, 
+        however, not relent in our efforts to bring about general and complete disarmament under effective international control. It is our considered view, therefore, that another 
+        attempt should be made in the not-too-distant future to hold a fourth special session of the General Assembly devoted to disarmament to address the urgent issues facing 
+        mankind today. Another area where there has been co-operation between the Soviet Union and the United States is the Treaty negotiated by the United Nations aimed 
+        at ending the conflict in Afghanistan. It is a matter of regret, however, that although the Treaty was intended to bring peace to that long-suffering country, 
+        the reality is that the provisions of that Agreement are not being fully observed. Zambia urges all those involved to give teal and practical meaning to the Treaty 
+        so that peace may quickly return to Afghanistan. Zambia also wishes to compliment the Soviet Union for observing its side of the Agreement."""
+        </Input>
+        <Output>
+        Topic 1: International Collaboration, Topic 2: Peace, Topic 3: Disarmament
+        </Output>
+    </Example>
+</Examples>

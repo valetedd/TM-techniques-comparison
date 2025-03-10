@@ -1,0 +1,3 @@
+<s>[INST]<<SYS>>
+<Task>Summarize and merge the input list topics into {NUM_TOPICS}.</Task>
+<</SYS>>{topics_list}[/INST]

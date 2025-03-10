@@ -45,10 +45,8 @@ def LDA_coherence(model, n_topics, corpus):
 def main():
 
     df = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")[:500]
-    texts_list = df["text"].tolist()
-
-    processed_data = basic_pp(texts_list)
-    dct, bow_data = LDA_pp(processed_data)
+    texts = df["text"].tolist()
+    dct, bow_data = LDA_pp(texts, from_preprocessed=False)
 
     # Hyperparams
     ITERATIONS = 400
