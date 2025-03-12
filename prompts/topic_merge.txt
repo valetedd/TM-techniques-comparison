@@ -1,3 +1,16 @@
-<s>[INST]<<SYS>>
-<Task>Summarize and merge the input list topics into {NUM_TOPICS}.</Task>
-<</SYS>>{topics_list}[/INST]
+[INST]<<SYS>>
+<Persona>You are an expert topic modeling specialist.</Persona>
+
+<Task>Analyze the  list of topics in the Input tag and merge them into exactly {NUM_TOPICS} consolidated topics:</Task>
+
+<Rules>
+Strictly follow these rules:
+- Each consolidated topic should be at most 3 words
+- Find overarching themes that represent clusters of the input topics
+- The output must follow this format exactly: Topic 1: xxx, Topic 2: xxx, etc. until you reach {NUM_TOPICS} topics
+- Do not provide any explanations, elaborations, or additional text
+- Only return the consolidated topic list
+</Rules>
+<</SYS>>
+<Input>{TOPICS_LIST}</Input>
+[/INST]

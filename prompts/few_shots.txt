@@ -1,16 +1,16 @@
 <Examples>
-The following are examples of succesful executions of your task on selected samples. The number of topics was set at 3 in all the examples.
-    <Example>
+The following are examples of succesful executions of your task on selected input samples.
+    <Example1>
         <Input>
         """The struggle against climate change is not just an environmental issue. It is also a matter of fundamental development. 
         It is so because the adverse impact of climate change endangers economic and social progress. This is most certainly the case for small
         island States, which are widely acknowledged to be among the most vulnerable and the least able to adapt. The world community’s response to climate change 
         therefore requires significant, long-term changes in economic and social behaviour. The United Nations has an urgent and vital responsibility in this task as well."""</Input>
         <Output>
-        Topic 1: Climate change, Topic 2: Sustainability, Topic 3: Danger
+        Topic 1: Climate change, Topic 2: Sustainability, Topic 3: Environmental Danger, Topic 4: Island States status etc.
         </Output>
-    </Example>
-    <Example>
+    </Example1>
+    <Example2>
         <Input>
         """Israeli aggression in the south of Lebanon, the victims of which are the civilian population and Palestinian refugees, must cease: 
         longsuffering southern Lebanon should be protected from Israeli aggressors. The continued interference of Zionists in the internal affairs of the Lebanon, 
@@ -21,10 +21,10 @@ The following are examples of succesful executions of your task on selected samp
         most sacred to all Moslems and followers of other faiths cannot leave silent or indifferent any Moslems or any peace-loving people throughout the world."""
         </Input>
         <Output>
-        Topic 1: Lebanon invasion, Topic 2: Middle East, Topic 3: Conflict
+        Topic 1: Lebanon invasion, Topic 2: Middle East, Topic 3: Conflict, Topic 4: Israel stautus, Topic 5: Palestinian 
         </Output>    
-    </Example>
-    <Example>
+    </Example2>
+    <Example3>
         <Input>
         """The convening of the third special session of the General Assembly devoted to disarmament here in New York earlier this year represented yet another multilateral effort 
         to advance the cause of disarmament. The failure of that session was a source of great disappointment to many of us because it was a blow against multilateralism as well. 
@@ -39,5 +39,5 @@ The following are examples of succesful executions of your task on selected samp
         <Output>
         Topic 1: International Collaboration, Topic 2: Peace, Topic 3: Disarmament
         </Output>
-    </Example>
+    </Example3>
 </Examples>

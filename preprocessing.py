@@ -13,7 +13,7 @@ import os
 import pickle
 
 import matplotlib.pyplot as plt
-from typing import List, Callable
+from typing import List, Callable, Iterable
 
 from gensim.corpora import Dictionary
 
@@ -58,13 +58,40 @@ def get_pp_data(data_path:str, func:Callable, **kwargs):
     pp_data = func(texts_list, **kwargs)
     return pp_data
 
+def load_pp(folder : str | Path, file_or_files : str | Iterable):
+    if not isinstance(folder, (str, Path)):
+        raise TypeError("'folder' must be a str or a Path object")
+    path = Path(folder) if isinstance(folder, str) else folder
+
+    file_map = {}
+    for f in path.iterdir():
+
+        if f.name not in file_or_files:
+            continue
+
+        elif f.name.endswith("pkl"):
+            with open(f.name, mode="rb") as f:
+                file = pickle.load(f)
+            if isinstance(file[0], tuple):
+                file_map["bow"] = file
+            else:
+                file_map["tokenized"] = file
+
+        elif f.name.endswith("dict"):
+            with open(f.name, mode="r") as f:
+                file = Dictionary.load(f)
+                file_map["index"] = file
+
+    return file_map
+        
+
 def main():
     data = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")["text"].tolist()[:10]
     pp = basic_pp(corpus=data)
     dct, bow = LDA_pp(docs=pp)
     dct.save("data/UN_PP/dictionary.dict")
 
-    with open("data/UN_PP/pp.pkl", mode="wb") as f:
+    with open("data/UN_PP/tokenized.pkl", mode="wb") as f:
         pickle.dump(pp, f)
     with open("data/UN_PP/bow.pkl", mode="wb") as f1:
         pickle.dump(bow, f1)
