@@ -1,6 +1,6 @@
 .venv
-data/results/UN_speeches
-data/UN_PP/
+data
 __pycache__
 .vscode
 saves
+TODO.txt
