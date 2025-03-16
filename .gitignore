@@ -1,4 +1,6 @@
 .venv
-data
+data/results/UN_speeches
+data/UN_PP/
 __pycache__
 .vscode
+saves

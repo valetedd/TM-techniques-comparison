@@ -1,5 +1,5 @@
 from gensim.models import LdaModel
-from preprocessing import LDA_pp, basic_pp
+from preprocessing import BOW_pp, basic_pp
 import pandas as pd
 from pprint import pprint as pp
 
@@ -46,7 +46,7 @@ def main():
 
     df = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")[:500]
     texts = df["text"].tolist()
-    dct, bow_data = LDA_pp(texts, from_preprocessed=False)
+    dct, bow_data = BOW_pp(texts, from_preprocessed=False)
 
     # Hyperparams
     ITERATIONS = 400

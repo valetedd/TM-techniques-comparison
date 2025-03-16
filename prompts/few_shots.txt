@@ -7,7 +7,11 @@ The following are examples of succesful executions of your task on selected inpu
         island States, which are widely acknowledged to be among the most vulnerable and the least able to adapt. The world community’s response to climate change 
         therefore requires significant, long-term changes in economic and social behaviour. The United Nations has an urgent and vital responsibility in this task as well."""</Input>
         <Output>
-        Topic 1: Climate change, Topic 2: Sustainability, Topic 3: Environmental Danger, Topic 4: Island States status etc.
+        - **Climate change**; 
+        - **Sustainability**; 
+        - **Environmental Danger**; 
+        - **Island States status**;
+        etc. 
         </Output>
     </Example1>
     <Example2>
@@ -21,7 +25,12 @@ The following are examples of succesful executions of your task on selected inpu
         most sacred to all Moslems and followers of other faiths cannot leave silent or indifferent any Moslems or any peace-loving people throughout the world."""
         </Input>
         <Output>
-        Topic 1: Lebanon invasion, Topic 2: Middle East, Topic 3: Conflict, Topic 4: Israel stautus, Topic 5: Palestinian 
+        -  **Lebanon invasion**; 
+        -  **Middle East**; 
+        -  **Conflict**; 
+        -  **Israel international reputation**; 
+        -  **Muslim world**.
+        etc.
         </Output>    
     </Example2>
     <Example3>
@@ -37,7 +46,10 @@ The following are examples of succesful executions of your task on selected inpu
         so that peace may quickly return to Afghanistan. Zambia also wishes to compliment the Soviet Union for observing its side of the Agreement."""
         </Input>
         <Output>
-        Topic 1: International Collaboration, Topic 2: Peace, Topic 3: Disarmament
+        - **International Collaboration**; 
+        - **Middle East**; 
+        - **Peace**; 
+        etc.
         </Output>
     </Example3>
 </Examples>

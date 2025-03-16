@@ -15,7 +15,7 @@ def main():
     topic_model.fit_transform(docs)
     result = topic_model.get_topic_info()
     print(result)
-    result.drop("Representative_Docs", axis=1).to_csv("data/bertopics.csv")
+    result.drop("Representative_Docs", axis=1).to_csv("data/results/bertopics.csv")
 
 if __name__ == "__main__":
     main()

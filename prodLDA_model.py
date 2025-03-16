@@ -8,12 +8,13 @@ class Encoder(nn.Module):
     def __init__(self, vocab_size, hidden_size, dropout):
         super().__init__()
         self.drop = nn.Dropout(dropout)
+        self.bn = nn.BatchNorm1d(num_features=hidden_size)
         self.fc1 = nn.Linear(vocab_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, inputs):
-        h1 = F.softplus(self.fc1(inputs))
-        h2 = F.softplus(self.fc2(h1))
+        h1 = self.bn(F.softplus(self.fc1(inputs)))
+        h2 = self.bn(F.softplus(self.fc2(h1)))
         return self.drop(h2)
 
 
@@ -21,15 +22,15 @@ class HiddenToLogNormal(nn.Module):
     def __init__(self, hidden_size, num_topics):
         super().__init__()
         self.fcmu = nn.Linear(hidden_size, num_topics)
-        # self.bnmu = nn.BatchNorm1d(num_topics)
+        self.bnmu = nn.BatchNorm1d(num_topics)
         
-        self.fclv = nn.Linear(hidden_size, num_topics)
-        # self.bnlv = nn.BatchNorm1d(num_topics)
+        self.fc_sigma = nn.Linear(hidden_size, num_topics)
+        self.bn_sigma = nn.BatchNorm1d(num_topics)
 
     def forward(self, hidden):
-        mu = self.fcmu(hidden)
-        lv = self.fclv(hidden)
-        dist = LogNormal(mu, (0.5 * lv).exp())
+        mu = self.bnmu(self.fcmu(hidden)) 
+        log_var = self.bn_sigma(self.fc_sigma(hidden))
+        dist = LogNormal(mu, (0.5 * log_var).exp())
         return dist
 
         
@@ -37,10 +38,10 @@ class HiddenToDirichlet(nn.Module):
     def __init__(self, hidden_size, num_topics):
         super().__init__()
         self.fc = nn.Linear(hidden_size, num_topics)
-        # self.bn = nn.BatchNorm1d(num_topics)
+        self.bn = nn.BatchNorm1d(num_topics)
 
     def forward(self, hidden):
-        alphas = F.softplus(self.fc(hidden)) + 0.1 # constant to ensure positivity
+        alphas = self.bn(self.fc(hidden)).exp() # ensure positivity (avoiding errors)
         dist = Dirichlet(alphas)
         return dist
 
@@ -49,13 +50,12 @@ class Decoder(nn.Module):
     def __init__(self, vocab_size, num_topics, dropout):
         super().__init__()
         self.fc = nn.Linear(num_topics, vocab_size)
-        # self.bn = nn.BatchNorm1d(vocab_size)
+        self.bn = nn.BatchNorm1d(vocab_size)
         self.drop = nn.Dropout(dropout) 
 
     def forward(self, inputs):
         inputs = self.drop(inputs)
-        return F.log_softmax(self.fc(inputs), dim=1)
-        # logarithmic probabilities align better to NLL loss (reconstruction loss)
+        return F.log_softmax(self.bn(self.fc(inputs)), dim=1) # logarithmic probabilities align better to NLL loss (reconstruction loss)
 
 
 class ProdLDA(nn.Module):
@@ -67,12 +67,13 @@ class ProdLDA(nn.Module):
                  use_lognormal=False):
         super().__init__()
         
-        self.encode = Encoder(vocab_size, hidden_size, dropout)
+        self.use_lognormal = use_lognormal
+        self.encoder = Encoder(vocab_size, hidden_size, dropout)
         if use_lognormal:
             self.h2t = HiddenToLogNormal(hidden_size, num_topics)
         else:
             self.h2t = HiddenToDirichlet(hidden_size, num_topics)
-        self.decode = Decoder(vocab_size, num_topics, dropout)
+        self.decoder = Decoder(vocab_size, num_topics, dropout)
         self.apply(self.weights_init)
 
     def weights_init(self, m):
@@ -82,12 +83,16 @@ class ProdLDA(nn.Module):
                 nn.init.zeros_(m.bias)
                 
     def forward(self, inputs):
-        h = self.encode(inputs)
+        h = self.encoder(inputs)
         posterior = self.h2t(h)
+        # Getting theta (topic distribution) from the learned posterior distribution
         if self.training:
-            t = posterior.rsample().to(inputs.device)
+            theta = posterior.rsample().to(inputs.device) # reparameterization trick
         else:
-            t = posterior.mean.to(inputs.device)
-        t = t / t.sum(1, keepdim=True)
-        outputs = self.decode(t)
+            theta = posterior.mean.to(inputs.device)
+
+        if self.use_lognormal:
+            theta = F.softmax(theta, dim=1)
+
+        outputs = self.decoder(theta)
         return outputs, posterior
