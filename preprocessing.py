@@ -31,7 +31,9 @@ def basic_pp(corpus: list[str], n_grams : Optional[Literal["bi-grams", "tri-gram
             
         tokens = [t.lemma_ for t in doc
                     if t.is_alpha and not 
-                    (t.lemma_ in sw or len(t.lemma_) <= 2)]
+                    t.pos_ in {""} and not
+                    (t.text in sw or len(t.text) <= 2)]
+        
         processed_corpus.append(tokens)
 
     if n_grams:

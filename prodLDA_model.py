@@ -8,14 +8,18 @@ class Encoder(nn.Module):
     def __init__(self, vocab_size, hidden_size, dropout):
         super().__init__()
         self.drop = nn.Dropout(dropout)
-        self.bn = nn.BatchNorm1d(num_features=hidden_size)
+        self.bn1 = nn.BatchNorm1d(num_features=hidden_size)
+        self.bn2 = nn.BatchNorm1d(num_features=hidden_size)
+        self.bn3 = nn.BatchNorm1d(num_features=hidden_size)
         self.fc1 = nn.Linear(vocab_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, inputs):
-        h1 = self.bn(F.softplus(self.fc1(inputs)))
-        h2 = self.bn(F.softplus(self.fc2(h1)))
-        return self.drop(h2)
+        h1 = self.bn1(F.softplus(self.fc1(inputs)))
+        h2 = self.bn2(F.softplus(self.fc2(h1)))
+        h3 = self.bn3(F.softplus(self.fc3(h2)))
+        return self.drop(h3)
 
 
 class HiddenToLogNormal(nn.Module):
@@ -78,7 +82,13 @@ class ProdLDA(nn.Module):
 
     def weights_init(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight)
+            # For encoder layers (ReLU-like activations)
+            if m == self.encoder.fc1 or m == self.encoder.fc2:
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+            # For decoder/distribution layers
+            else:
+                # Smaller initialization for topic distribution layers
+                nn.init.normal_(m.weight, mean=0.0, std=0.01)
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
                 

@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from gensim.models.coherencemodel import CoherenceModel
 import gensim.corpora as corpora
-from typing import List, Dict, Union, Optional, Tuple
+from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -13,7 +13,7 @@ class TopicEvaluationSuite:
     Compatible with LDA, prodLDA, BERTopic, and LLM-generated topics.
     """
     
-    def __init__(self, texts: List[List[str]], topics : List[List[str]], dictionary=None):
+    def __init__(self, texts: List[List[str]], dictionary=None):
         """
         Initialize the evaluation suite.
         
@@ -30,7 +30,7 @@ class TopicEvaluationSuite:
         # Prepare corpus for coherence calculations
         self.corpus = [self.dictionary.doc2bow(text) for text in texts]
         
-    def _get_top_n_words(self, topic_model, n=10, model_type='lda'):
+    def _get_top_n_words(self, topic_model, model_type : str, n=10):
         """
         Extract top n words for each topic based on model type.
         
@@ -50,13 +50,12 @@ class TopicEvaluationSuite:
                 topics.append(top_words)
                 
         elif model_type.lower() == 'prodlda':
-            # Assuming prodLDA model from neural-topic-models or similar
-            # Adjust based on the actual implementation
-            for topic_id in range(topic_model.n_components):
-                word_dist = topic_model.get_topic_word_dist()[topic_id]
-                top_indices = np.argsort(word_dist)[-n:][::-1]
-                top_words = [topic_model.id2word[idx] for idx in top_indices]
-                topics.append(top_words)
+            # TODO: implement a way to get topics from prodLDA model
+            beta = topic_model.decoder.fc.weight.cpu().detach().numpy().T
+            idx2word = self.dictionary.index2word
+            for i in range(len(beta)):
+                topic = [idx2word[j] for j in beta[i].argsort()[:-n-1:-1]]
+                topics.append(topic)
                 
         elif model_type.lower() == 'bertopic':
             # For BERTopic
@@ -74,7 +73,7 @@ class TopicEvaluationSuite:
                 
         return topics
     
-    def compute_coherence(self, topic_model, model_type='lda', coherence_measure='c_v') -> float:
+    def compute_coherence(self, topic_model, model_type, coherence_measure='c_v') -> float:
         """
         Compute topic coherence for the given model.
         
@@ -101,7 +100,7 @@ class TopicEvaluationSuite:
         
         return coherence_model.get_coherence()
     
-    def compute_topic_diversity(self, topic_model, model_type='lda', n_words=25) -> float:
+    def compute_topic_diversity(self, topic_model, model_type, n_words=25) -> float:
         """
         Compute topic diversity as the percentage of unique words in the
         top N words of all topics.

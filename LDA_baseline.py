@@ -34,12 +34,12 @@ def train_LDA(
     return model
 
 
-def LDA_coherence(model, n_topics, corpus):
+# def LDA_coherence(model, n_topics, corpus):
 
-    top_topics = model.top_topics(corpus)
-    avg_topic_coherence = sum([t[1] for t in top_topics]) / n_topics
+#     top_topics = model.top_topics(corpus)
+#     avg_topic_coherence = sum([t[1] for t in top_topics]) / n_topics
 
-    return top_topics, avg_topic_coherence
+#     return top_topics, avg_topic_coherence
 
 
 def main():
@@ -62,8 +62,9 @@ def main():
                 eval_every = None
                 )
     
-    top_topics, avg_coherence = LDA_coherence(model, N_TOPICS, corpus=bow_data)
-    print('Average topic coherence: %.4f.' % avg_coherence)
+    top_topics = model.top_topics(corpus=bow_data)
+    # top_topics, avg_coherence = LDA_coherence(model, N_TOPICS, corpus=bow_data)
+    # print('Average topic coherence: %.4f.' % avg_coherence)
     pp("\nTop topics:")
     pp(top_topics)
 

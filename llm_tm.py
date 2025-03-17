@@ -19,26 +19,29 @@ import requests
 
 
 class LLM_TopicModel():
-    def __init__(self, settings, model):
+    def __init__(self, settings, model, sys : bool = False):
 
-        self._check_ollama_running()
+        self.status = self._check_ollama_reqs()
         self.client = ollama.Client()
         self.model = model
 
-        sys_p = settings.get("system_prompt").get("content")
-        self.sys_prompt = self._get_prompt(sys_p)
+        if sys:
+            sys_p = settings["system_prompt"]["content"]
+            self.sys_prompt = self._get_prompt(sys_p)
 
-        base_p = settings.get("base_prompt").get("content")
+        base_p = settings["base_prompt"]["content"]
         self.base_prompt = self._get_prompt(base_p)
 
-        few_shots = settings.get("base_prompt").get("fs")
+        few_shots = settings["base_prompt"]["fs"]
         self.fs = self._get_prompt(few_shots)
+        
+        self.merge_prompt = self._get_prompt(self.settings["merge_prompt"]["content"])
 
         self.st = settings["base_prompt"]["seed_topics"]
         self.opt = settings["options"]
         
     
-    def _check_ollama_running(self, model_name):
+    def _check_ollama_reqs(self, model_name):
         try:
             models_list = [info.model for info in ollama.list()["models"]]
             if not model_name in models_list:
@@ -52,6 +55,10 @@ class LLM_TopicModel():
 
 
     def _get_prompt(self, ref : str):
+        
+        if not isinstance(ref, str):
+            raise TypeError("'ref' must either be a string-type prompt or a path to a txt")
+        
         if not ref.endswith(".txt"):
             content = ref
         else:
@@ -74,23 +81,23 @@ class LLM_TopicModel():
             # print(batch)
             interpolated_prompt = self.base_prompt.format(SEED_TOPICS=self.st, FEW_SHOTS=self.fs, BATCH=doc)
             response = self.client.generate(model=self.model_name, prompt=interpolated_prompt, options=self.opt)["response"]
+
             print(f"\n\n{'-'*10}START OF RESPONSE{'-'*10}")
             print(response)
             print(f"\n{'-'*10}END OF RESPONSE{'-'*10}\n")
+
             topics = self._extract_topic(response)
             print(topics)
             corpus_topics.extend(topics)
-
-        return self.merge_topics(corpus_topics, settings=self.settings, client=self.client, model_name=self.model_name)
+        self.topics = self.merge_topics(corpus_topics, settings=self.settings, client=self.client, model_name=self.model_name)
+        return self.topics
     
 
     def merge_topics( self, topics : List[str]):
 
-        prompt = self._get_prompt(self.settings["merge_prompt"]["content"])
-        options = self._get_prompt(self.settings["options"])
 
         topics = list(set(topics)) # dedupe
-        merged_topics = self.client.generate(model=self.model_name, prompt=prompt, options=options)
+        merged_topics = self.client.generate(model=self.model_name, prompt=self.merge_prompt, options=self.opt)
         return merged_topics
 
 

@@ -9,13 +9,16 @@ from torch.distributions import LogNormal, Dirichlet, Normal
 from torch.distributions import kl_divergence
 import pandas as pd
 from gensim.corpora import Dictionary
+from gensim.models import CoherenceModel
 from sklearn.model_selection import train_test_split
 from typing import Optional, List
 import os
 from tqdm import tqdm
 
-from prodLDA_model import ProdLDA
+# from prodLDA_model import ProdLDA
+from prodLDA_altmodel import ProdLDA
 import preprocessing as pp
+from main import TopicEvaluationSuite
 
 
 # Arguments for CLI interface
@@ -92,7 +95,7 @@ class UN_data(Dataset):
         dense = torch.zeros(self.min_len)
         for id, count in doc:
             dense[id] = count
-        return dense.to_sparse()
+        return dense
     
     @property
     def num_tokens(self):
@@ -204,6 +207,29 @@ def print_top_words(beta, idx2word, n_words=10): # beta represents the topic-wor
             [idx2word[j] for j in beta[i].argsort()[:-n_words-1:-1]])
         print(f"Topic {i+1}: {line};")
 
+def model_eval(model : ProdLDA, dct : Dictionary, bow : List[List[tuple]], n_words : int = 10):
+
+    print("Getting coherence scores...")
+
+    topics = []
+    beta = model.decoder.fc.weight.cpu().detach().numpy().T
+    idx2word = dct.id2token
+
+    for i in range(len(beta)):
+        topic = [idx2word[j] for j in beta[i].argsort()[:-n_words-1:-1]]
+        topics.append(topic)
+    
+    texts = [[idx2word[id] for id, _ in doc] for doc in bow]
+
+    coherence_model = CoherenceModel(
+        topics=topics,
+        texts=texts,
+        dictionary=dct,
+        coherence='c_v'
+    )
+        
+    return coherence_model.get_coherence()
+
 
 def main():
     
@@ -256,13 +282,16 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=args.lr, 
-        weight_decay=args.wd)
+        weight_decay=args.wd,
+        betas=(0.95, 0.999))
     # Add to your code
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-                                                           mode='min', 
-                                                           factor=0.3, 
-                                                           patience=2,
-                                                           min_lr=1e-5)
+    # Alternative scheduler setup
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, 
+        T_0=5,  # Initial restart period
+        T_mult=2,  # Multiply period after each restart
+        eta_min=1e-4  # Minimum learning rate
+    )
 
     best_loss = None
 
@@ -272,7 +301,7 @@ def main():
             epoch_start_time = time.time()
             train_nll, train_kld, train_ppl = train(train_dataloader, model, optimizer, device, epoch)
             test_nll, test_kld, test_ppl = evaluate(test_dataloader, model, device, epoch)
-            scheduler.step(test_nll + test_kld)
+            scheduler.step()
             
             print('-' * 80)
             meta = "| epoch {:2d} | time {:5.2f}s ".format(epoch, time.time()-epoch_start_time)
@@ -302,10 +331,16 @@ def main():
           "| test ppl {:5.2f}".format(
               test_nll, test_kld, test_ppl))
     print('=' * 80)
+
+
     beta = model.decoder.fc.weight.cpu().detach().numpy().T # topic-word distribution
     print(beta.shape, beta)
     id2token = index.id2token
     print_top_words(beta, id2token)
+
+    coherence = model_eval(model=model, dct=index, bow=bow_data)
+
+    print("Model coherence {:4.2f}".format(coherence))
 
     
 if __name__ == '__main__':
