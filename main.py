@@ -29,6 +29,7 @@ class TopicEvaluationSuite:
         
         # Prepare corpus for coherence calculations
         self.corpus = [self.dictionary.doc2bow(text) for text in texts]
+
         
     def _get_top_n_words(self, topic_model, model_type : str, n=10):
         """
@@ -50,7 +51,7 @@ class TopicEvaluationSuite:
                 topics.append(top_words)
                 
         elif model_type.lower() == 'prodlda':
-            # TODO: implement a way to get topics from prodLDA model
+            # Getting the topic matrix from the decoder of the model
             beta = topic_model.decoder.fc.weight.cpu().detach().numpy().T
             idx2word = self.dictionary.index2word
             for i in range(len(beta)):
@@ -73,7 +74,8 @@ class TopicEvaluationSuite:
                 
         return topics
     
-    def compute_coherence(self, topic_model, model_type, coherence_measure='c_v') -> float:
+    
+    def compute_coherence(self, topic_model, model_type, coherence_measure='c_npmi') -> float:
         """
         Compute topic coherence for the given model.
         
@@ -125,6 +127,7 @@ class TopicEvaluationSuite:
         
         return diversity
     
+    
     def compute_topic_overlap(self, topic_model, model_type='lda', n_words=10) -> float:
         """
         Calculate average pairwise overlap between topics.
@@ -153,7 +156,7 @@ class TopicEvaluationSuite:
                 
         return np.mean(overlaps)
     
-    def compute_pairwise_distances(self, topic_model, model_type='lda', metric='cosine', method='embeddings', embedding_model=None):
+    def compute_pairwise_distances(self, topic_model, model_type, metric='cosine', method='embeddings', embedding_model=None):
         """
         Compute pairwise distances between topic vectors.
         
@@ -241,7 +244,7 @@ class TopicEvaluationSuite:
         # Only compute coherence for non-LLM models
         if model_type.lower() != 'llm':
             results['coherence_cv'] = self.compute_coherence(
-                topic_model, model_type=model_type, coherence_measure='c_v'
+                topic_model, model_type=model_type, coherence_measure='c_npmi'
             )
             results['coherence_umass'] = self.compute_coherence(
                 topic_model, model_type=model_type, coherence_measure='u_mass'
@@ -335,3 +338,14 @@ class TopicEvaluationSuite:
             rows.append(row)
             
         return pd.DataFrame(rows)
+    
+
+def main():
+    # data
+    texts = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv", nrows=500)["text"].to_list()
+
+    # models 
+
+
+    evaluator = TopicEvaluationSuite(texts=texts)
+    # evaluator.

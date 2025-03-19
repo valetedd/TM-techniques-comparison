@@ -41,7 +41,7 @@ class Decoder(nn.Module):
 
     def forward(self, inputs):
         inputs = self.drop(inputs)
-        return F.log_softmax(self.bn(self.fc(inputs)), dim=1)
+        return F.log_softmax(self.fc(inputs), dim=1)
 
 class ProdLDA(nn.Module):
     def __init__(self, vocab_size, hidden_size, num_topics, dropout):

@@ -18,14 +18,13 @@ from tqdm import tqdm
 # from prodLDA_model import ProdLDA
 from prodLDA_altmodel import ProdLDA
 import preprocessing as pp
-from main import TopicEvaluationSuite
 
 
 # Arguments for CLI interface
 parser = argparse.ArgumentParser(description='ProdLDA')
 
 # Hidden layers
-parser.add_argument('--hidden_size', type=int, default=1024,
+parser.add_argument('--hidden_size', type=int, default=512,
                     help="number of hidden units for hidden layers")
 # Number of topics
 parser.add_argument('--num_topics', type=int, default=10,
@@ -66,7 +65,7 @@ args = parser.parse_args() # Namespace containing all the hyperparams
 torch.manual_seed(args.seed)
 
 
-# Dataset class for the employed dataset
+# Dataset class 
 
 class UN_data(Dataset):
     def __init__(self, 
@@ -105,19 +104,14 @@ class UN_data(Dataset):
 
 def standard_prior_like(posterior):
 
-    if isinstance(posterior, LogNormal):
-        loc = torch.zeros_like(posterior.loc)
-        scale = torch.ones_like(posterior.scale)        
-        prior = LogNormal(loc, scale)
-
-    elif isinstance(posterior, Dirichlet):
+    if isinstance(posterior, Dirichlet):
         alphas = torch.ones_like(posterior.concentration)
         prior = Dirichlet(alphas)
 
     elif isinstance(posterior, Normal):
         prior_mu = torch.zeros_like(posterior.loc)
         prior_logvar = torch.zeros_like(posterior.scale)
-        prior = posterior = Normal(prior_mu, (0.5 * prior_logvar).exp())
+        prior  = Normal(prior_mu, (0.5 * prior_logvar).exp())
 
     return prior
 
@@ -135,6 +129,7 @@ def evaluate(data_source, model, device, epoch):
     total_nll = 0.0
     total_kld = 0.0
     total_words = 0
+    total_docs = 0
     
     for _, doc_batch in enumerate(data_source):
         test_data = doc_batch.to(device)
@@ -146,10 +141,11 @@ def evaluate(data_source, model, device, epoch):
         total_nll += nll.item() 
         total_kld += kld.item() 
         total_words += test_data.sum().item()  # Count actual tokens in this batch
+        total_docs += doc_batch.size(0)
 
     # Normalize by the total number of tokens
     normalized_nll = total_nll / total_words
-    normalized_kld = total_kld / total_words
+    normalized_kld = total_kld / total_docs
 
     # Perplexity is directly from the normalized NLL
     ppl = math.exp(normalized_nll)
@@ -163,17 +159,19 @@ def train(data_source, model, optimizer, device, epoch):
     total_nll = 0.0
     total_kld = 0.0
     total_words = 0
+    total_docs = 0
 
-    for _, doc_batch in enumerate(tqdm(data_source, desc=f"Epoch {epoch+1}/{args.epochs}")):
+    for _, doc_batch in enumerate(tqdm(data_source, desc=f"Epoch {epoch}/{args.epochs}")):
         data = doc_batch.to(device)
-        total_words += data.sum().item()
 
         pred, posterior = model(data)
-        beta = min(1.0, epoch / args.kl_anneal_epochs)
+        beta = 1 # min(1.0, epoch / args.kl_anneal_epochs)
         nll, kld = get_loss(data, pred, posterior, device, beta=beta)
 
         total_nll += nll.item()
         total_kld += kld.item()
+        total_words += data.sum().item()
+        total_docs += doc_batch.size(0)
 
         optimizer.zero_grad()   
         loss = nll + kld
@@ -183,7 +181,7 @@ def train(data_source, model, optimizer, device, epoch):
         optimizer.step()
 
     normalized_nll = total_nll / total_words
-    normalized_kld = total_kld / total_words
+    normalized_kld = total_kld / total_docs
 
     ppl = math.exp(normalized_nll) # perplexity
     return (normalized_nll, normalized_kld, ppl)
@@ -207,6 +205,7 @@ def print_top_words(beta, idx2word, n_words=10): # beta represents the topic-wor
             [idx2word[j] for j in beta[i].argsort()[:-n_words-1:-1]])
         print(f"Topic {i+1}: {line};")
 
+
 def model_eval(model : ProdLDA, dct : Dictionary, bow : List[List[tuple]], n_words : int = 10):
 
     print("Getting coherence scores...")
@@ -217,7 +216,8 @@ def model_eval(model : ProdLDA, dct : Dictionary, bow : List[List[tuple]], n_wor
 
     for i in range(len(beta)):
         topic = [idx2word[j] for j in beta[i].argsort()[:-n_words-1:-1]]
-        topics.append(topic)
+        if topic:
+            topics.append(topic)
     
     texts = [[idx2word[id] for id, _ in doc] for doc in bow]
 
@@ -225,7 +225,7 @@ def model_eval(model : ProdLDA, dct : Dictionary, bow : List[List[tuple]], n_wor
         topics=topics,
         texts=texts,
         dictionary=dct,
-        coherence='c_v'
+        coherence='c_npmi'
     )
         
     return coherence_model.get_coherence()
@@ -275,22 +275,20 @@ def main():
         vocab_size, 
         args.hidden_size, 
         args.num_topics,
-        args.dropout, 
-        # args.use_lognormal
+        args.dropout,
         ).to(device)
     
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=args.lr, 
         weight_decay=args.wd,
-        betas=(0.95, 0.999))
+        betas=(0.99, 0.999))
     # Add to your code
     # Alternative scheduler setup
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, 
-        T_0=5,  # Initial restart period
-        T_mult=2,  # Multiply period after each restart
-        eta_min=1e-4  # Minimum learning rate
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer=optimizer,
+        patience=5,
+        factor=0.2
     )
 
     best_loss = None
@@ -301,7 +299,7 @@ def main():
             epoch_start_time = time.time()
             train_nll, train_kld, train_ppl = train(train_dataloader, model, optimizer, device, epoch)
             test_nll, test_kld, test_ppl = evaluate(test_dataloader, model, device, epoch)
-            scheduler.step()
+            scheduler.step(metrics=train_nll + train_kld)
             
             print('-' * 80)
             meta = "| epoch {:2d} | time {:5.2f}s ".format(epoch, time.time()-epoch_start_time)

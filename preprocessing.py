@@ -31,7 +31,7 @@ def basic_pp(corpus: list[str], n_grams : Optional[Literal["bi-grams", "tri-gram
             
         tokens = [t.lemma_ for t in doc
                     if t.is_alpha and not 
-                    t.pos_ in {""} and not
+                    t.pos_ in {"ADV"} and not
                     (t.text in sw or len(t.text) <= 2)]
         
         processed_corpus.append(tokens)
@@ -80,11 +80,13 @@ def BOW_pp(
 
     return dictionary, bow_repr
 
+
 def get_pp_data(data_path:str, func:Callable, **kwargs):
     df = pd.read_csv(filepath_or_buffer=data_path)
     texts_list = df["text"].tolist()
     pp_data = func(texts_list, **kwargs)
     return pp_data
+
 
 def load_pp(folder : str | Path, file_or_files : str | Iterable):
     if not isinstance(folder, (str, Path)):
@@ -115,6 +117,7 @@ def load_pp(folder : str | Path, file_or_files : str | Iterable):
         
 
 def main():
+
     data = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")["text"].tolist()
     pp = basic_pp(data, n_grams="tri-grams")
     # pp = load_pp(folder="data/UN_PP", file_or_files="tokenized.pkl")["tokenized"]
