@@ -26,11 +26,8 @@ class Encoder(nn.Module):
         self.fc2 = nn.Linear(hidden, hidden)
         self.fcmu = nn.Linear(hidden, num_topics)
         self.fclv = nn.Linear(hidden, num_topics)
-        # NB: here we set `affine=False` to reduce the number of learning parameters
-        # See https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm1d.html
-        # for the effect of this flag in BatchNorm1d
         self.bnmu = nn.BatchNorm1d(num_topics, affine=False)  # to avoid component collapse
-        self.bnlv = nn.BatchNorm1d(num_topics, affine=False)  # to avoid component collapse
+        self.bnlv = nn.BatchNorm1d(num_topics, affine=False)  
 
     def forward(self, inputs):
         h = F.softplus(self.fc1(inputs))
@@ -65,32 +62,7 @@ class ProdLDA(nn.Module):
         self.encoder = Encoder(vocab_size, num_topics, hidden, dropout)
         self.decoder = Decoder(vocab_size, num_topics, dropout)
 
-    def model(self, docs):
-        pyro.module("decoder", self.decoder)
-        with pyro.plate("documents", docs.shape[0]):
-            # Dirichlet prior 𝑝(𝜃|𝛼) is replaced by a logistic-normal distribution
-            logtheta_loc = docs.new_zeros((docs.shape[0], self.num_topics))
-            logtheta_scale = docs.new_ones((docs.shape[0], self.num_topics))
-            logtheta = pyro.sample(
-                "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1))
-            theta = F.softmax(logtheta, -1)
-
-            # conditional distribution of 𝑤𝑛 is defined as
-            # 𝑤𝑛|𝛽,𝜃 ~ Categorical(𝜎(𝛽𝜃))
-            count_param = self.decoder(theta)
-            # Currently, PyTorch Multinomial requires `total_count` to be homogeneous.
-            # Because the numbers of words across documents can vary,
-            # we will use the maximum count accross documents here.
-            # This does not affect the result because Multinomial.log_prob does
-            # not require `total_count` to evaluate the log probability.
-            total_count = int(docs.sum(-1).max())
-            pyro.sample(
-                'obs',
-                dist.Multinomial(total_count, count_param),
-                obs=docs
-            )
-
-    def guide(self, docs):
+    def guide(self, docs): # callable used for sampli
         pyro.module("encoder", self.encoder)
         with pyro.plate("documents", docs.shape[0]):
             # Dirichlet prior 𝑝(𝜃|𝛼) is replaced by a logistic-normal distribution,
@@ -98,6 +70,25 @@ class ProdLDA(nn.Module):
             logtheta_loc, logtheta_scale = self.encoder(docs)
             logtheta = pyro.sample(
                 "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1))
+            
+    def model(self, docs): # equivalent of forward pass in PyTorch
+        pyro.module("decoder", self.decoder)
+        batch_size = docs.shape[0]
+        with pyro.plate("documents", batch_size):
+            # Dirichlet prior 𝑝(𝜃|𝛼) is replaced by a logistic-normal distribution
+            logtheta_loc = docs.new_zeros((batch_size, self.num_topics))
+            logtheta_scale = docs.new_ones((batch_size, self.num_topics))
+            logtheta = pyro.sample(
+                "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1))
+            theta = F.softmax(logtheta, -1) # Topic distributions on the batch
+            count_param = self.decoder(theta)
+            total_count = docs.sum().item()
+            pyro.sample(
+                'obs',
+                dist.Multinomial(total_count, count_param),
+                obs=docs
+            )
+
 
     def beta(self):
         # beta matrix elements are the weights of the FC layer on the decoder
@@ -209,7 +200,7 @@ for epoch in bar:
 
 print("\n" + '-' * 30 + ' Topics ' + '-' * 30 + "\n")
 
-beta = prodLDA.beta().cpu().numpy()
+beta = prodLDA.beta().numpy()
 
 topics = []
 idx2word = dct.id2token
