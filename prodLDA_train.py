@@ -235,7 +235,7 @@ def main():
     
     print("Loading data")
     # data = pd.read_csv(args.data)["text"].to_numpy()[:50]
-    bow_data, index = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))
+    bow_data, index = pp.load_pp("data/UN_PP/backup", ("bow.pkl", "dictionary.dict"))
     bow_data = bow_data[:500]
     good_ids = set()
     for doc in bow_data:
