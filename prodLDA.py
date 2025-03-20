@@ -22,13 +22,18 @@ class Encoder(nn.Module):
     # Base class for the encoder net, used in the guide
     def __init__(self, vocab_size, num_topics, hidden, dropout):
         super().__init__()
-        self.drop = nn.Dropout(dropout)  # to avoid component collapse
-        self.fc1 = nn.Linear(vocab_size, hidden)
-        self.fc2 = nn.Linear(hidden, hidden)
+        self.enc = nn.Sequential(
+            nn.Linear(vocab_size, hidden),
+            F.softplus(),
+            nn.Linear(hidden, hidden),
+            F.softplus(),
+            nn.Dropout(dropout)  # to avoid component collapse  
+        )
         self.fcmu = nn.Linear(hidden, num_topics)
         self.fclv = nn.Linear(hidden, num_topics)
         self.bnmu = nn.BatchNorm1d(num_topics, affine=False)  # to avoid component collapse
-        self.bnlv = nn.BatchNorm1d(num_topics, affine=False)  
+        self.bnlv = nn.BatchNorm1d(num_topics, affine=False)
+        
 
     def forward(self, inputs):
         h = F.softplus(self.fc1(inputs))
@@ -63,7 +68,7 @@ class ProdLDA(nn.Module):
         self.encoder = Encoder(vocab_size, num_topics, hidden, dropout)
         self.decoder = Decoder(vocab_size, num_topics, dropout)
 
-    def guide(self, docs): # callable used for sampli
+    def guide(self, docs): # getting the approximate posterior using the encoder params
         pyro.module("encoder", self.encoder)
         with pyro.plate("documents", docs.shape[0]):
             # Dirichlet prior 𝑝(𝜃|𝛼) is replaced by a logistic-normal distribution,
@@ -83,13 +88,12 @@ class ProdLDA(nn.Module):
                 "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1))
             theta = F.softmax(logtheta, -1) # Topic distributions on the batch
             count_param = self.decoder(theta)
-            total_count = int(docs.sum().item()) #int(docs.sum(-1).max())
+            total_count = int(docs.sum(-1).max())
             pyro.sample(
                 'obs',
                 dist.Multinomial(total_count, count_param),
                 obs=docs
             )
-
 
     def beta(self):
         # beta matrix elements are the weights of the FC layer on the decoder
