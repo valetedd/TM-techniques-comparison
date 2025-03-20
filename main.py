@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from gensim.models.coherencemodel import CoherenceModel
 import gensim.corpora as corpora
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Iterable, Literal
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -338,10 +338,22 @@ class TopicEvaluationSuite:
             rows.append(row)
             
         return pd.DataFrame(rows)
-    
+
+def get_data_in_timeframe(df : pd.DataFrame, timeframe : tuple[str]):
+    start, end = timeframe[0], timeframe[1]
+    mask = (int(start) <= df["year"]) & (df["year"] <= int(end))
+    df = df[mask]
+    return df["text"].to_list()
+
+
 
 def main():
     # data
+    data = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv")
+    covid_data = get_data_in_timeframe(data, timeframe=["2020", "2022"]) # getting covid data
+    
+    print(len(covid_data))
+    return
     texts = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv", nrows=500)["text"].to_list()
 
     # models 
@@ -349,3 +361,6 @@ def main():
 
     evaluator = TopicEvaluationSuite(texts=texts)
     # evaluator.
+
+if __name__ == "__main__":
+    main()

@@ -1,6 +1,8 @@
 import pyro
 import pyro.distributions as dist
+import pyro.optim
 import torch
+import torch.optim.optimizer
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,7 +13,6 @@ from gensim.corpora import Dictionary
 from gensim.models import CoherenceModel
 from typing import List
 
-smoke_test = False
 print(torch.cuda.is_available())
 
 
@@ -82,7 +83,7 @@ class ProdLDA(nn.Module):
                 "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1))
             theta = F.softmax(logtheta, -1) # Topic distributions on the batch
             count_param = self.decoder(theta)
-            total_count = docs.sum().item()
+            total_count = int(docs.sum().item()) #int(docs.sum(-1).max())
             pyro.sample(
                 'obs',
                 dist.Multinomial(total_count, count_param),
@@ -132,7 +133,8 @@ class UN_data(Dataset):
         return sum(sum(count for _, count in doc) for doc in self.data)
 
 
-dct, bow = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))
+# dct, bow = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))  ### right order for linux
+bow, dct = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))
 bow = bow[:500]
 good_ids = set()
 for doc in bow:
@@ -155,7 +157,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Hyperparams
 num_topics = 20
 batch_size = 32
-learning_rate = 1e-2
+learning_rate = 5e-3
 num_epochs = 150
 
 # Handling data
@@ -169,7 +171,8 @@ docs = DataLoader(
     dataset=dataset, 
     batch_size=batch_size, 
     shuffle=True, 
-    num_workers=8)
+    # num_workers=8
+    )
 
 # Training
 pyro.clear_param_store()
@@ -182,24 +185,31 @@ prodLDA = ProdLDA(
 )
 prodLDA.to(device)
 
-optimizer = pyro.optim.Adam({"lr": learning_rate})
-svi = SVI(prodLDA.model, prodLDA.guide, optimizer, loss=TraceMeanField_ELBO())
+opt_params = {"lr":learning_rate, "betas":(0.95, 0.999)}
+optimizer = torch.optim.AdamW
+
+sched_params = {"optimizer":optimizer, "optim_args":opt_params, "patience":5, "factor":0.2, "min_lr":1e-6}
+scheduler = pyro.optim.ReduceLROnPlateau(sched_params)
+
+svi = SVI(prodLDA.model, prodLDA.guide, scheduler, loss=TraceMeanField_ELBO())
 
 bar = trange(num_epochs)
-for epoch in bar:
-    running_loss = 0.0
-    for doc in docs:
-        batch_docs = doc.to(device)
-        loss = svi.step(batch_docs)
-        running_loss += loss / batch_docs.size(0)
-    
-    epoch_loss = running_loss / len(docs)
-    bar.set_postfix(epoch_loss='{:.2f}'.format(epoch_loss))
+try:
+    for epoch in bar:
+        running_loss = 0.0
+        for doc in docs:
+            batch_docs = doc.to(device)
+            loss = svi.step(batch_docs)
+            running_loss += loss / batch_docs.size(0)
+        scheduler.step(metrics=loss)
+        epoch_loss = running_loss / len(docs)
+        bar.set_postfix(epoch_loss='{:.2f}'.format(epoch_loss))
+except KeyboardInterrupt:
+    print("Exiting training early")
+
 
 # Checking results 
-
 print("\n" + '-' * 30 + ' Topics ' + '-' * 30 + "\n")
-
 beta = prodLDA.beta().numpy()
 
 topics = []
@@ -223,3 +233,13 @@ coherence_model = CoherenceModel(
     
 coherence = coherence_model.get_coherence()
 print(f"Coherence: {coherence}")
+
+str_topics = [", ".join(topic)+"\n" for topic in topics]
+with open("data/results/prodLDA.txt", mode="w", encoding="utf-8") as f:
+    f.write()
+
+def main():
+    pass
+
+if __name__ == "__main__":
+    main()

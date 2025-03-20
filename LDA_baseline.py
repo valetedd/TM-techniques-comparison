@@ -1,5 +1,6 @@
 from gensim.models import LdaModel
 from preprocessing import BOW_pp, basic_pp
+from gensim.test.utils import datapath
 import pandas as pd
 from pprint import pprint as pp
 
@@ -49,8 +50,8 @@ def main():
     dct, bow_data = BOW_pp(texts, from_preprocessed=False)
 
     # Hyperparams
-    ITERATIONS = 400
-    N_TOPICS = 100
+    ITERATIONS = 1000
+    N_TOPICS = 20
     PASSES = 20
 
     model = train_LDA(
@@ -67,6 +68,9 @@ def main():
     # print('Average topic coherence: %.4f.' % avg_coherence)
     pp("\nTop topics:")
     pp(top_topics)
+
+    temp = datapath("data/results/lda")
+    model.save(temp)
 
 if __name__ == "__main__":
     main()

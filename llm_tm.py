@@ -21,7 +21,7 @@ import requests
 class LLM_TopicModel():
     def __init__(self, settings, model, sys : bool = False):
 
-        self.status = self._check_ollama_reqs()
+        self.status = self._check_ollama_reqs(model)
         self.client = ollama.Client()
         self.model = model
 
@@ -35,7 +35,8 @@ class LLM_TopicModel():
         few_shots = settings["base_prompt"]["fs"]
         self.fs = self._get_prompt(few_shots)
         
-        self.merge_prompt = self._get_prompt(self.settings["merge_prompt"]["content"])
+        self.merge_prompt = self._get_prompt(settings["merge_prompt"]["content"])
+        self.n_topics = settings["merge_prompt"]["n_topics"]
 
         self.st = settings["base_prompt"]["seed_topics"]
         self.opt = settings["options"]
@@ -67,8 +68,12 @@ class LLM_TopicModel():
         return content
     
 
-    def _extract_topic(self, content):
-        pattern = r"(?:\d+\.|\-)\s\*\*(.*?)\*\*"
+    def _extract_topic(self, content, pattern = None):
+
+        content = content.split("</think>")[1] # making sure to only target the response
+
+        if not pattern:
+            pattern = r"(?:\d+\.|\-)\s\*\*(.*?)\*\*"
         topics = re.findall(pattern, string=content)
 
         return topics
@@ -77,44 +82,48 @@ class LLM_TopicModel():
     def get_topics(self, corpus : List[str]):
 
         corpus_topics = []
-        for doc in corpus:
+        for i in range(len(corpus)):
+            doc = corpus[i]
             # print(batch)
             interpolated_prompt = self.base_prompt.format(SEED_TOPICS=self.st, FEW_SHOTS=self.fs, BATCH=doc)
-            response = self.client.generate(model=self.model_name, prompt=interpolated_prompt, options=self.opt)["response"]
-
-            print(f"\n\n{'-'*10}START OF RESPONSE{'-'*10}")
+            print(f"\n\n{'-'*10}START OF RESPONSE N.{i+1}{'-'*10}")
+            response = self.client.generate(model=self.model, prompt=interpolated_prompt, options=self.opt)["response"]
             print(response)
             print(f"\n{'-'*10}END OF RESPONSE{'-'*10}\n")
-
+            if i == 0:
+                continue
             topics = self._extract_topic(response)
             print(topics)
             corpus_topics.extend(topics)
-        self.topics = self.merge_topics(corpus_topics, settings=self.settings, client=self.client, model_name=self.model_name)
-        return self.topics
+
+        merged_topics = self.merge_topics(corpus_topics)
+        return corpus_topics, merged_topics
     
 
     def merge_topics( self, topics : List[str]):
-
-
+        
+        prompt = self.merge_prompt.format(NUM_TOPICS=self.n_topics, TOPICS_LIST=topics)
         topics = list(set(topics)) # dedupe
-        merged_topics = self.client.generate(model=self.model_name, prompt=self.merge_prompt, options=self.opt)
+        print(f"Merging {len(topics)} topics")
+        resp = self.client.generate(model=self.model, prompt=prompt, options=self.opt)["response"]
+        print(resp)
+        merged_topics = self._extract_label(resp)
+        print(f"Extracted: {merged_topics}")
         return merged_topics
 
 
-    def _extract_label(self, content : str):
-        return content
+    def _extract_label(self, content, pattern = None):
 
-    def get_topic_labels(self, topics : List[List[str]]):
-        
-        base_prompt = self._get_prompt(self.settings["base_prompt"]["content"])
+        content = content.split("</think>")[1].strip()
 
-        label2topic = {}
-        for topic_list in topics:
-            resp = self.client.generate(model=self.model, prompt=base_prompt, options=self.opt)["response"]
-            label = self._extract_label(resp)
-            label2topic[label] = topic_list
-
-        return label2topic
+        if not pattern:
+            pattern = r"^Topic\s+\d+\s*:$"
+        clean_labels = re.sub(pattern, repl="", string=content)
+        if "," in clean_labels:
+            labels = [match.split(":")[1].strip() for match in clean_labels.split(",")]
+        else:
+            labels = 0
+        return labels
 
 
 def main():
@@ -132,8 +141,8 @@ def main():
             "fs" : "prompts/few_shots.txt"
         },
         "merge_prompt":{
-            "content" : "prompt/topic_merge.txt",
-            "n_topics" : 50
+            "content" : "prompts/topic_merge.txt",
+            "n_topics" : 2
         },
         "options" : {
             "temperature" : 0.0
@@ -142,12 +151,14 @@ def main():
 
     tm_agent = LLM_TopicModel(model=MODEL_NAME, settings=settings)
 
-    df = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")[:10]
+    df = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")[:2]
     texts_list = df["text"].tolist()
 
 
-    topics = tm_agent.get_topics(texts_list)
+    _, topics = tm_agent.get_topics(texts_list)
     print(f"Retrived topics: {topics}")
+    with open("data/results/llm_tm.txt", mode="w", encoding="utf-8") as f:
+        f.write(str(topics))
 
 if __name__ == "__main__":
     main()
