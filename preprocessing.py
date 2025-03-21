@@ -5,6 +5,8 @@ if not spacy.util.is_package(model_name):
     print(f"python -m spacy download {model_name}")
 
 from nltk.corpus import stopwords
+import nltk
+nltk.download('stopwords')
 
 import pandas as pd
 from pathlib import Path

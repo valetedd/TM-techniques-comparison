@@ -19,29 +19,40 @@ import requests
 
 
 class LLM_TopicModel():
-    def __init__(self, settings, model, sys : bool = False):
+    def __init__(self, settings, model, sys : bool = False, labelling : bool = False):
 
         self.status = self._check_ollama_reqs(model)
         self.client = ollama.Client()
         self.model = model
+        self.final_topics = None
 
         if sys:
             sys_p = settings["system_prompt"]["content"]
             self.sys_prompt = self._get_prompt(sys_p)
 
+        if labelling:
+            self.labelling_prompt = self._get_prompt(settings["labelling_prompt"]["content"])
+
         base_p = settings["base_prompt"]["content"]
         self.base_prompt = self._get_prompt(base_p)
 
-        few_shots = settings["base_prompt"]["fs"]
-        self.fs = self._get_prompt(few_shots)
-        
         self.merge_prompt = self._get_prompt(settings["merge_prompt"]["content"])
         self.n_topics = settings["merge_prompt"]["n_topics"]
 
-        self.st = settings["base_prompt"]["seed_topics"]
-        self.opt = settings["options"]
-        
-    
+        try:
+            few_shots = settings["base_prompt"]["fs"]
+            self.fs = self._get_prompt(few_shots)
+            
+
+            self.st = settings["base_prompt"]["seed_topics"]
+            self.opt = settings["options"]
+
+        except KeyError:
+            print("Few shots or seed topics not found in settings. Please provide them.")
+            self.fs = ""
+            self.st = ""  
+
+
     def _check_ollama_reqs(self, model_name):
         try:
             models_list = [info.model for info in ollama.list()["models"]]
@@ -67,21 +78,36 @@ class LLM_TopicModel():
                 content = f.read()
         return content
     
+    def label_topics(self, topics):
+
+        self.client.chat(model=self.model, messages={"role" : "system", "content" : self.labelling_prompt})
+        labels = []
+        for topic in topics:
+            print(f"Labeling topic: {topic}")
+            resp = self.client.generate(model=self.model, prompt=f"{topic}. Label this topic", options=self.opt)["response"]
+            print(resp)
+            label = self._extract_label(resp)
+            print(f"Extracted: {label}")
+            labels.append(label)
+        return labels
+
 
     def _extract_topic(self, content, pattern = None):
+        try:
+            content = content.split("</think>")[1] # making sure to only target the response
 
-        content = content.split("</think>")[1] # making sure to only target the response
-
-        if not pattern:
-            pattern = r"(?:\d+\.|\-)\s\*\*(.*?)\*\*"
-        topics = re.findall(pattern, string=content)
-
+            if not pattern:
+                pattern = r"(?:\d+\.|\-)\s\*\*(.*?)\*\*"
+            topics = re.findall(pattern, string=content)
+        except IndexError:
+            print("No topics found")
+            return None
         return topics
 
 
     def get_topics(self, corpus : List[str]):
 
-        corpus_topics = []
+        raw_topics = []
         for i in range(len(corpus)):
             doc = corpus[i]
             # print(batch)
@@ -90,14 +116,14 @@ class LLM_TopicModel():
             response = self.client.generate(model=self.model, prompt=interpolated_prompt, options=self.opt)["response"]
             print(response)
             print(f"\n{'-'*10}END OF RESPONSE{'-'*10}\n")
-            if i == 0:
-                continue
             topics = self._extract_topic(response)
+            if i == 0 and not topics:
+                continue
             print(topics)
-            corpus_topics.extend(topics)
+            raw_topics.extend(topics)
 
-        merged_topics = self.merge_topics(corpus_topics)
-        return corpus_topics, merged_topics
+        merged_topics = self.final_topics = self.merge_topics(raw_topics)
+        return raw_topics, merged_topics
     
 
     def merge_topics( self, topics : List[str]):
@@ -113,16 +139,20 @@ class LLM_TopicModel():
 
 
     def _extract_label(self, content, pattern = None):
+        try:
+            content = content.split("</think>")[1].strip()
 
-        content = content.split("</think>")[1].strip()
-
-        if not pattern:
-            pattern = r"^Topic\s+\d+\s*:$"
-        clean_labels = re.sub(pattern, repl="", string=content)
-        if "," in clean_labels:
-            labels = [match.split(":")[1].strip() for match in clean_labels.split(",")]
-        else:
-            labels = 0
+            if not pattern:
+                pattern = r"^Topic\s+\d+\s*:$"
+            clean_labels = re.sub(pattern, repl="", string=content)
+            if "," in clean_labels:
+                sep = ","
+            elif "\n" in clean_labels:
+                sep = "\n"
+            labels = [match.split(":")[1].strip() for match in clean_labels.split(sep)]
+        except IndexError:
+            print("No topics found")
+            return None
         return labels
 
 

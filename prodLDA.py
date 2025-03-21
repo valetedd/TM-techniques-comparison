@@ -24,9 +24,9 @@ class Encoder(nn.Module):
         super().__init__()
         self.enc = nn.Sequential(
             nn.Linear(vocab_size, hidden),
-            F.softplus(),
+            nn.Softplus(),
             nn.Linear(hidden, hidden),
-            F.softplus(),
+            nn.Softplus(),
             nn.Dropout(dropout)  # to avoid component collapse  
         )
         self.fcmu = nn.Linear(hidden, num_topics)
@@ -36,9 +36,7 @@ class Encoder(nn.Module):
         
 
     def forward(self, inputs):
-        h = F.softplus(self.fc1(inputs))
-        h = F.softplus(self.fc2(h))
-        h = self.drop(h)
+        h = self.enc(inputs)
         # μ and Σ are the outputs
         logtheta_loc = self.bnmu(self.fcmu(h))
         logtheta_logvar = self.bnlv(self.fclv(h))
@@ -68,7 +66,7 @@ class ProdLDA(nn.Module):
         self.encoder = Encoder(vocab_size, num_topics, hidden, dropout)
         self.decoder = Decoder(vocab_size, num_topics, dropout)
 
-    def guide(self, docs): # getting the approximate posterior using the encoder params
+    def guide(self, docs): # getting the approximate posterior and sampling theta
         pyro.module("encoder", self.encoder)
         with pyro.plate("documents", docs.shape[0]):
             # Dirichlet prior 𝑝(𝜃|𝛼) is replaced by a logistic-normal distribution,
@@ -99,6 +97,53 @@ class ProdLDA(nn.Module):
         # beta matrix elements are the weights of the FC layer on the decoder
         return self.decoder.beta.weight.cpu().detach().T
     
+    def train(
+            self,
+            docs,
+            device,
+            num_epochs : int = 50,
+            learning_rate : float = 1e-2,
+            optimizer = pyro.optim.Adam):
+        
+        # Training
+        pyro.clear_param_store()
+
+        
+        self.to(device)
+
+        opt_params = {"lr":learning_rate, "betas":(0.95, 0.999)}
+        optimizer = torch.optim.AdamW
+
+        sched_params = {"optimizer":optimizer, "optim_args":opt_params, "patience":5, "factor":0.2, "min_lr":1e-6}
+        scheduler = pyro.optim.ReduceLROnPlateau(sched_params)
+
+        svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
+
+        bar = trange(num_epochs)
+        try:
+            for epoch in bar:
+                running_loss = 0.0
+                for doc in docs:
+                    batch_docs = doc.to(device)
+                    loss = svi.step(batch_docs)
+                    running_loss += loss / batch_docs.size(0)
+                scheduler.step(metrics=loss)
+                epoch_loss = running_loss / len(docs)
+                bar.set_postfix(epoch_loss='{:.2f}'.format(epoch_loss))
+        except KeyboardInterrupt:
+            print("Exiting training early")
+
+        # saving model
+        import time
+
+        t = time.localtime()
+        current_time = time.strftime("%H:%M:%S", t)
+        model_name = f"prodLDA_model_{current_time}.pt"
+        optimizer_name = f"prodLDA_optimizer_{current_time}.pt"
+        torch.save(self.state_dict(), f"data/results/prodLDA{model_name}")
+        torch.save(scheduler.get_state(), f"data/results/prodLDA{optimizer_name}")
+
+        return self
 
 ### TRAINING ###
     
@@ -137,113 +182,111 @@ class UN_data(Dataset):
         return sum(sum(count for _, count in doc) for doc in self.data)
 
 
-# dct, bow = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))  ### right order for linux
-bow, dct = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))
-bow = bow[:500]
-good_ids = set()
-for doc in bow:
-    for idx, _ in doc:
-        good_ids.add(idx)
+def get_dataloader(bow, vocab_size : int, batch_size : int, dct = None):
+    # Handling data
+    dataset = UN_data(
+        corpus=bow, 
+        min_length=vocab_size,
+        dct=dct,
+        preprocessed=True)
 
-dct.filter_tokens(good_ids=list(good_ids))
-
-if not dct.id2token:
-    dct.id2token = {v: k for k, v in dct.token2id.items()}
-
-vocab_size = len(dct)
-
-# setting global variables
-seed = 42
-torch.manual_seed(seed)
-pyro.set_rng_seed(seed)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Hyperparams
-num_topics = 20
-batch_size = 32
-learning_rate = 5e-3
-num_epochs = 150
-
-# Handling data
-dataset = UN_data(
-    corpus=bow, 
-    min_length=vocab_size,
-    dct=dct,
-    preprocessed=True)
-
-docs = DataLoader(
-    dataset=dataset, 
-    batch_size=batch_size, 
-    shuffle=True, 
-    # num_workers=8
-    )
-
-# Training
-pyro.clear_param_store()
-
-prodLDA = ProdLDA(
-    vocab_size=vocab_size,
-    num_topics=num_topics,
-    hidden=512,
-    dropout=0.2
-)
-prodLDA.to(device)
-
-opt_params = {"lr":learning_rate, "betas":(0.95, 0.999)}
-optimizer = torch.optim.AdamW
-
-sched_params = {"optimizer":optimizer, "optim_args":opt_params, "patience":5, "factor":0.2, "min_lr":1e-6}
-scheduler = pyro.optim.ReduceLROnPlateau(sched_params)
-
-svi = SVI(prodLDA.model, prodLDA.guide, scheduler, loss=TraceMeanField_ELBO())
-
-bar = trange(num_epochs)
-try:
-    for epoch in bar:
-        running_loss = 0.0
-        for doc in docs:
-            batch_docs = doc.to(device)
-            loss = svi.step(batch_docs)
-            running_loss += loss / batch_docs.size(0)
-        scheduler.step(metrics=loss)
-        epoch_loss = running_loss / len(docs)
-        bar.set_postfix(epoch_loss='{:.2f}'.format(epoch_loss))
-except KeyboardInterrupt:
-    print("Exiting training early")
-
+    dataloader = DataLoader(
+        dataset=dataset, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        # num_workers=
+        )
+    return dataloader
 
 # Checking results 
-print("\n" + '-' * 30 + ' Topics ' + '-' * 30 + "\n")
-beta = prodLDA.beta().numpy()
 
-topics = []
-idx2word = dct.id2token
-for i in range(len(beta)):
-    topic = [idx2word[j] for j in beta[i].argsort()[:-10-1:-1]]
-    if topic:
-        print(f"Topic {i+1}: {topic};")
-        topics.append(topic)
+def get_topics(model, dct):
+    print("\n" + '-' * 30 + ' Topics ' + '-' * 30 + "\n")
+    beta = model.beta().numpy()
 
-texts = [[idx2word[id] for id, _ in doc] for doc in bow]
+    topics = []
 
-print("Getting coherence scores...")
+    idx2word = dct.id2token
+    for i in range(len(beta)):
+        topic = [idx2word[j] for j in beta[i].argsort()[:-10-1:-1]]
+        if topic:
+            print(f"Topic {i+1}: {topic};")
+            topics.append(topic)
 
-coherence_model = CoherenceModel(
-    topics=topics,
-    texts=texts,
-    dictionary=dct,
-    coherence='c_v'
-)
-    
-coherence = coherence_model.get_coherence()
-print(f"Coherence: {coherence}")
+    # saving topics in txt
+    str_topics = "\n".join([", ".join(topic) for topic in topics])
+    with open("data/results/prodLDA.txt", mode="w", encoding="utf-8") as f:
+        f.write(str_topics)
+        return topics
 
-str_topics = [", ".join(topic)+"\n" for topic in topics]
-with open("data/results/prodLDA.txt", mode="w", encoding="utf-8") as f:
-    f.write()
+def get_avg_coherence(topics, bow, dct):
+
+    idx2word = dct.id2token
+
+    texts = [[idx2word[id] for id, _ in doc] for doc in bow]
+
+    print("Getting coherence scores...")
+
+    coherence_model = CoherenceModel(
+        topics=topics,
+        texts=texts,
+        dictionary=dct,
+        coherence='c_v'
+    )
+        
+    coherence = coherence_model.get_coherence()
+    print(f"Coherence: {coherence}")
+    return coherence
+
+
+
 
 def main():
-    pass
+    # dct, bow = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))  ### right order for linux
+    bow, dct = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))
+    bow = bow[:500]
+    good_ids = set()
+    for doc in bow:
+        for idx, _ in doc:
+            good_ids.add(idx)
+
+    dct.filter_tokens(good_ids=list(good_ids))
+
+    if not dct.id2token:
+        dct.id2token = {v: k for k, v in dct.token2id.items()}
+
+    vocab_size = len(dct)
+
+    # setting global variables
+    seed = 42
+    torch.manual_seed(seed)
+    pyro.set_rng_seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Hyperparams
+    num_topics = 20
+    batch_size = 32
+    learning_rate = 1e-2
+    num_epochs = 150
+
+    dataloader = get_dataloader(bow=bow, vocab_size=vocab_size, batch_size=batch_size, dct=dct)
+
+    prodLDA = ProdLDA(
+        vocab_size=vocab_size,
+        num_topics=num_topics,
+        hidden=512,
+        dropout=0.2
+    )
+
+    prodLDA.train(
+        docs=dataloader,
+        device=device,
+        learning_rate=learning_rate,
+        num_epochs=num_epochs
+    )
+
+    
+
 
 if __name__ == "__main__":
     main()

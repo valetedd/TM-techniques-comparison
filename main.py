@@ -3,9 +3,10 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from gensim.models.coherencemodel import CoherenceModel
 import gensim.corpora as corpora
-from typing import List, Dict, Tuple, Iterable, Literal
+from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
 import seaborn as sns
+import torch
 
 class TopicEvaluationSuite:
     """
@@ -52,8 +53,8 @@ class TopicEvaluationSuite:
                 
         elif model_type.lower() == 'prodlda':
             # Getting the topic matrix from the decoder of the model
-            beta = topic_model.decoder.fc.weight.cpu().detach().numpy().T
-            idx2word = self.dictionary.index2word
+            beta = topic_model.beta().numpy()
+            idx2word = self.dictionary.id2token
             for i in range(len(beta)):
                 topic = [idx2word[j] for j in beta[i].argsort()[:-n-1:-1]]
                 topics.append(topic)
@@ -66,16 +67,14 @@ class TopicEvaluationSuite:
                     topics.append(top_words)
                     
         elif model_type.lower() == 'llm':
-            # For LLM-generated topics, assuming a list of lists of words
-            if isinstance(topic_model, list) and all(isinstance(topic, list) for topic in topic_model):
-                topics = [topic[:n] for topic in topic_model]
-            else:
-                raise ValueError("LLM topics should be provided as a list of lists of words")
+            # For LLM-generated topics, assuming a list of labels
+            print(f"LLM topics: {topic_model.final_topics}")
+            return topic_model.final_topics
                 
         return topics
     
     
-    def compute_coherence(self, topic_model, model_type, coherence_measure='c_npmi') -> float:
+    def compute_coherence(self, topic_model, model_type, coherence_measure='c_v') -> float:
         """
         Compute topic coherence for the given model.
         
@@ -90,19 +89,25 @@ class TopicEvaluationSuite:
         if model_type.lower() == 'llm':
             print("Coherence calculation not available for LLM-generated topics")
             return None
-            
+
+
         topics = self._get_top_n_words(topic_model, model_type=model_type)
         
+        _ = self.dictionary[0]
+
+        idx2word = self.dictionary.id2token
+        texts = [[idx2word[id] for id, _ in doc] for doc in self.corpus]
+
         coherence_model = CoherenceModel(
             topics=topics,
-            texts=self.texts,
+            texts=texts,
             dictionary=self.dictionary,
             coherence=coherence_measure
         )
         
         return coherence_model.get_coherence()
     
-    def compute_topic_diversity(self, topic_model, model_type, n_words=25) -> float:
+    def compute_topic_diversity(self, topic_model, model_type, n_words=10) -> float:
         """
         Compute topic diversity as the percentage of unique words in the
         top N words of all topics.
@@ -116,19 +121,22 @@ class TopicEvaluationSuite:
             Topic diversity score (0-1, higher is more diverse)
         """
         topics = self._get_top_n_words(topic_model, n=n_words, model_type=model_type)
+        print(model_type)
+        print(topics)
         
-        # Flatten the list of top words
-        all_words = [word for topic in topics for word in topic]
+    
+        # Flatten the list of top words if needed
+        all_words = [word for topic in topics for word in topic] if not model_type.lower() == 'llm' else topics
         # Count unique words
         unique_words = set(all_words)
         
         # Diversity = unique words / total words
-        diversity = len(unique_words) / len(all_words)
+        diversity = len(unique_words) / len(all_words)   # Add a small value to avoid division by zero
         
         return diversity
     
     
-    def compute_topic_overlap(self, topic_model, model_type='lda', n_words=10) -> float:
+    def compute_topic_overlap(self, topic_model, model_type, n_words=10) -> float:
         """
         Calculate average pairwise overlap between topics.
         
@@ -140,6 +148,10 @@ class TopicEvaluationSuite:
         Returns:
             Average word-level overlap between topics (0-1, lower is better)
         """
+        if model_type.lower() == 'llm':
+            print("Coherence calculation not available for LLM-generated topics")
+            return None
+        
         topics = self._get_top_n_words(topic_model, n=n_words, model_type=model_type)
         
         topic_count = len(topics)
@@ -170,6 +182,10 @@ class TopicEvaluationSuite:
         Returns:
             Matrix of pairwise distances
         """
+        if model_type.lower() == 'llm':
+            print("Coherence calculation not available for LLM-generated topics")
+            return None
+        
         topics = self._get_top_n_words(topic_model, model_type=model_type)
         n_topics = len(topics)
         
@@ -218,6 +234,23 @@ class TopicEvaluationSuite:
             
         return distance_matrix
     
+    def autolabel_topic(self, topic_model, model_type, llm_name = 'deepseek-r1:8b'):
+        """
+        Label topics automatically using an LLM, based on the top words.
+        """
+        from llm_tm import LLM_TopicModel
+
+        tm_agent = LLM_TopicModel(model=llm_name)
+
+        labels = []
+        topics = self._get_top_n_words(topic_model, model_type=model_type)
+        for topic in topics:
+            label = tm_agent.label_topics(topic)
+            labels.append(label)
+        
+        return labels
+
+    
     def evaluate_model(self, topic_model, model_type, model_name=None) -> Dict:
         """
         Run a comprehensive evaluation of a topic model.
@@ -238,18 +271,14 @@ class TopicEvaluationSuite:
             'model_type': model_type,
             'num_topics': len(self._get_top_n_words(topic_model, model_type=model_type)),
             'topic_diversity': self.compute_topic_diversity(topic_model, model_type=model_type),
-            'topic_overlap': self.compute_topic_overlap(topic_model, model_type=model_type)
+            'topic_overlap': self.compute_topic_overlap(topic_model, model_type=model_type),
         }
         
         # Only compute coherence for non-LLM models
         if model_type.lower() != 'llm':
             results['coherence_cv'] = self.compute_coherence(
-                topic_model, model_type=model_type, coherence_measure='c_npmi'
-            )
-            results['coherence_umass'] = self.compute_coherence(
-                topic_model, model_type=model_type, coherence_measure='u_mass'
-            )
-            
+                topic_model, model_type=model_type, coherence_measure='c_v')
+            results['label'] = self.autolabel_topic(topic_model, model_type=model_type)
         return results
     
     def compare_models(self, models_dict: Dict[str, Tuple]) -> pd.DataFrame:
@@ -352,15 +381,138 @@ def main():
     data = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv")
     covid_data = get_data_in_timeframe(data, timeframe=["2020", "2022"]) # getting covid data
     
-    print(len(covid_data))
-    return
-    texts = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv", nrows=500)["text"].to_list()
+    import random
+    import preprocessing as pp
 
-    # models 
+    random.seed(42)
+    sampled_data = random.sample(covid_data, k=200)
+
+    pp_docs = pp.basic_pp(corpus=sampled_data,
+                          n_grams="tri-grams")
+    dct, bow = pp.BOW_pp(docs=pp_docs, 
+                         filter_extr=False, 
+                         from_preprocessed=True)
+    # ***MODELS*** 
+
+    NUM_TOPICS = 20
+
+    # traditional LDA
+    from LDA_baseline import train_LDA
+
+    ITERATIONS = 1000
+    PASSES = 20
+    CHUNKS = 100
+    classic_LDA = train_LDA(
+        bow_data=bow,
+        dct=dct,
+        chunksize=CHUNKS,
+        num_topics=NUM_TOPICS,
+        iterations=ITERATIONS,
+        passes=PASSES,
+        eval_every=10
+    )
+
+    # prodLDA
+    from prodLDA import ProdLDA, get_dataloader
+
+    HIDDEN = 512    
+    DROP_RATE = 0.2
+    
+    
+    BATCH_SIZE = 32
+    LEARNING_RATE = 1e-2
+    NUM_EPOCHS = 150
+
+    prodLDA = ProdLDA(
+        vocab_size=len(dct),
+        num_topics=NUM_TOPICS, 
+        hidden=HIDDEN,
+        dropout=DROP_RATE
+    )
+
+    dataloader = get_dataloader(
+        bow=bow,
+        vocab_size=len(dct),
+        batch_size=BATCH_SIZE,
+        dct=dct
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    prodLDA.to(device)
+
+    prodLDA.train(
+        docs=dataloader,
+        num_epochs=NUM_EPOCHS,
+        learning_rate=LEARNING_RATE, 
+        device=device,
+    )
 
 
-    evaluator = TopicEvaluationSuite(texts=texts)
-    # evaluator.
+    # # Generative topic mdodelling
+    from llm_tm import LLM_TopicModel
+
+    AGENT = "deepseek-r1:8b"
+
+    settings = {
+        "system_prompt" : {
+            "content" : "prompts/sys_prompt.txt"
+        },
+        "base_prompt":{
+            "content" : "prompts/tm_prompt.txt",
+            "seed_topics" : ["International Relations", "War", "Peace", "Cooperation", "Countries"],
+            "fs" : "prompts/few_shots.txt"
+        },
+        "merge_prompt":{
+            "content" : "prompts/topic_merge.txt",
+            "n_topics" : NUM_TOPICS
+        },
+        "labelling_prompt":{
+            "content" : "prompts/topic_labelling.txt",
+        },
+        "options" : {
+            "temperature" : 0.0
+            }
+    }
+
+    tm_agent = LLM_TopicModel(
+        settings=settings,
+        model=AGENT,
+    )
+    tm_agent.get_topics(sampled_data)
+
+    # bertopic 
+    from bertopic import BERTopic
+    from sklearn.feature_extraction.text import CountVectorizer
+    import umap
+    import hdbscan
+
+
+    bert_pp = [" ".join(doc) for doc in pp_docs]
+
+    # Lower params for reduced size corpus
+    umap_model = umap.UMAP(n_neighbors=5, n_components=2, min_dist=0.1, metric='cosine')
+    hdbscan_model = hdbscan.HDBSCAN(min_samples=2, min_cluster_size=2)
+
+    cv = CountVectorizer(stop_words="english", min_df=2)
+
+    # Run BERTopic
+    bertopic_model = BERTopic(
+        vectorizer_model=cv,
+        nr_topics=NUM_TOPICS,
+        calculate_probabilities=False,
+        umap_model=umap_model,
+        hdbscan_model=hdbscan_model
+    )
+    bertopic_model.fit_transform(bert_pp)
+
+    evaluator = TopicEvaluationSuite(texts=pp_docs)
+    comparison_df = evaluator.compare_models({
+        "LDA": (classic_LDA, "lda"),
+        "prodLDA": (prodLDA, "prodlda"),
+        # "LLM": (tm_agent, "llm"),
+        "BERTopic": (bertopic_model, "bertopic")
+    })
+    comparison_df.to_csv("data/comparison.csv", index=False)
+    print(comparison_df)
 
 if __name__ == "__main__":
     main()
