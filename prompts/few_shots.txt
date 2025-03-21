@@ -1,5 +1,4 @@
 <Examples>
-Model your responses on the following examples.
     <Example1>
         <Input>
         """The struggle against climate change is not just an environmental issue. It is also a matter of fundamental development. 

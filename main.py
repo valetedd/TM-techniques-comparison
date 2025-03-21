@@ -7,6 +7,8 @@ from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
+import random
+import preprocessing as pp
 
 class TopicEvaluationSuite:
     """
@@ -14,13 +16,14 @@ class TopicEvaluationSuite:
     Compatible with LDA, prodLDA, BERTopic, and LLM-generated topics.
     """
     
-    def __init__(self, texts: List[List[str]], dictionary=None):
+    def __init__(self, texts: List[List[str]], dictionary=None, eval_top = 10):
         """
         Initialize the evaluation suite.
         
         Args:
             texts: List of tokenized documents (each document is a list of tokens)
             dictionary: Optional pre-created gensim dictionary
+            eval_top: Number of top words to consider for evaluation
         """
         self.texts = texts
         if dictionary is None:
@@ -31,8 +34,10 @@ class TopicEvaluationSuite:
         # Prepare corpus for coherence calculations
         self.corpus = [self.dictionary.doc2bow(text) for text in texts]
 
-        
-    def _get_top_n_words(self, topic_model, model_type : str, n=10):
+        self.n_top = eval_top
+
+
+    def _get_top_n_words(self, topic_model, model_type : str, n=0):
         """
         Extract top n words for each topic based on model type.
         
@@ -44,6 +49,9 @@ class TopicEvaluationSuite:
         Returns:
             List of topics, where each topic is a list of top n words
         """
+        if not n:
+            n = self.n_top
+
         topics = []
         
         if model_type.lower() == 'lda':
@@ -90,6 +98,7 @@ class TopicEvaluationSuite:
             print("Coherence calculation not available for LLM-generated topics")
             return None
 
+        print(f"Computing coherence for {model_type} model")
 
         topics = self._get_top_n_words(topic_model, model_type=model_type)
         
@@ -107,7 +116,7 @@ class TopicEvaluationSuite:
         
         return coherence_model.get_coherence()
     
-    def compute_topic_diversity(self, topic_model, model_type, n_words=10) -> float:
+    def compute_topic_diversity(self, topic_model, model_type, n_words=0) -> float:
         """
         Compute topic diversity as the percentage of unique words in the
         top N words of all topics.
@@ -120,6 +129,10 @@ class TopicEvaluationSuite:
         Returns:
             Topic diversity score (0-1, higher is more diverse)
         """
+
+        if not n_words: 
+            n_words = self.n_top
+
         topics = self._get_top_n_words(topic_model, n=n_words, model_type=model_type)
         print(model_type)
         print(topics)
@@ -136,7 +149,7 @@ class TopicEvaluationSuite:
         return diversity
     
     
-    def compute_topic_overlap(self, topic_model, model_type, n_words=10) -> float:
+    def compute_topic_overlap(self, topic_model, model_type, n_words=0) -> float:
         """
         Calculate average pairwise overlap between topics.
         
@@ -148,6 +161,9 @@ class TopicEvaluationSuite:
         Returns:
             Average word-level overlap between topics (0-1, lower is better)
         """
+        if not n_words:
+            n_words = self.n_top
+
         if model_type.lower() == 'llm':
             print("Coherence calculation not available for LLM-generated topics")
             return None
@@ -234,19 +250,27 @@ class TopicEvaluationSuite:
             
         return distance_matrix
     
-    def autolabel_topic(self, topic_model, model_type, llm_name = 'deepseek-r1:8b'):
+    def autolabel_topic(self, topic_model, model_type, llm_name = 'deepseek-r1:8b', settings=None) -> List[str]:
         """
         Label topics automatically using an LLM, based on the top words.
         """
         from llm_tm import LLM_TopicModel
 
-        tm_agent = LLM_TopicModel(model=llm_name)
+        if not settings:
+            settings = {
 
-        labels = []
+                "labelling_p":"prompts/topic_labelling.txt",
+                "options" : {
+                    "temperature" : 0.0
+                    },
+                "model" : llm_name,
+                }
+
+        tm_agent = LLM_TopicModel(**settings)
+
         topics = self._get_top_n_words(topic_model, model_type=model_type)
-        for topic in topics:
-            label = tm_agent.label_topics(topic)
-            labels.append(label)
+        print(f"Starting labelling {model_type}: extracted these topics: {topics}")
+        labels = tm_agent.label_topics(topics)
         
         return labels
 
@@ -265,21 +289,26 @@ class TopicEvaluationSuite:
         """
         if model_name is None:
             model_name = model_type
-            
+        
+        topics = self._get_top_n_words(topic_model, model_type=model_type)
+
         results = {
             'model_name': model_name,
             'model_type': model_type,
-            'num_topics': len(self._get_top_n_words(topic_model, model_type=model_type)),
+            'num_topics': len(topics),
             'topic_diversity': self.compute_topic_diversity(topic_model, model_type=model_type),
             'topic_overlap': self.compute_topic_overlap(topic_model, model_type=model_type),
+            'top_topics': topics,
         }
         
         # Only compute coherence for non-LLM models
         if model_type.lower() != 'llm':
-            results['coherence_cv'] = self.compute_coherence(
-                topic_model, model_type=model_type, coherence_measure='c_v')
+            results['coherence_cv'] = self.compute_coherence(topic_model, model_type=model_type)
             results['label'] = self.autolabel_topic(topic_model, model_type=model_type)
+        else:
+            results['label'] = topic_model.topics
         return results
+    
     
     def compare_models(self, models_dict: Dict[str, Tuple]) -> pd.DataFrame:
         """
@@ -380,9 +409,6 @@ def main():
     # data
     data = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv")
     covid_data = get_data_in_timeframe(data, timeframe=["2020", "2022"]) # getting covid data
-    
-    import random
-    import preprocessing as pp
 
     random.seed(42)
     sampled_data = random.sample(covid_data, k=200)
@@ -415,20 +441,19 @@ def main():
     # prodLDA
     from prodLDA import ProdLDA, get_dataloader
 
-    HIDDEN = 512    
+    HIDDEN = 256    
     DROP_RATE = 0.2
-    
-    
-    BATCH_SIZE = 32
     LEARNING_RATE = 1e-2
     NUM_EPOCHS = 150
+    BATCH_SIZE = 32
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     prodLDA = ProdLDA(
         vocab_size=len(dct),
         num_topics=NUM_TOPICS, 
         hidden=HIDDEN,
         dropout=DROP_RATE
-    )
+    ).to(device)
 
     dataloader = get_dataloader(
         bow=bow,
@@ -436,8 +461,7 @@ def main():
         batch_size=BATCH_SIZE,
         dct=dct
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    prodLDA.to(device)
+
 
     prodLDA.train(
         docs=dataloader,
@@ -447,36 +471,21 @@ def main():
     )
 
 
-    # # Generative topic mdodelling
+    # Generative topic mdodelling
     from llm_tm import LLM_TopicModel
 
     AGENT = "deepseek-r1:8b"
 
-    settings = {
-        "system_prompt" : {
-            "content" : "prompts/sys_prompt.txt"
-        },
-        "base_prompt":{
-            "content" : "prompts/tm_prompt.txt",
-            "seed_topics" : ["International Relations", "War", "Peace", "Cooperation", "Countries"],
-            "fs" : "prompts/few_shots.txt"
-        },
-        "merge_prompt":{
-            "content" : "prompts/topic_merge.txt",
-            "n_topics" : NUM_TOPICS
-        },
-        "labelling_prompt":{
-            "content" : "prompts/topic_labelling.txt",
-        },
-        "options" : {
-            "temperature" : 0.0
-            }
-    }
+    options =  {"temperature" : 0.0}
 
-    tm_agent = LLM_TopicModel(
-        settings=settings,
-        model=AGENT,
-    )
+    tm_agent = LLM_TopicModel(model=AGENT,
+                              base_p="prompts/tm_prompt.txt",
+                              merge_p="prompts/topic_merge.txt",
+                              labelling_p="prompts/topic_labelling.txt",
+                              n_topics=20,
+                              n_shots="prompts/few_shots.txt",
+                              seed_topics=["International Relations", "War", "Peace", "Cooperation", "Countries"],
+                              options=options)
     tm_agent.get_topics(sampled_data)
 
     # bertopic 
@@ -489,7 +498,7 @@ def main():
     bert_pp = [" ".join(doc) for doc in pp_docs]
 
     # Lower params for reduced size corpus
-    umap_model = umap.UMAP(n_neighbors=5, n_components=2, min_dist=0.1, metric='cosine')
+    umap_model = umap.UMAP(n_neighbors=5, metric='cosine')
     hdbscan_model = hdbscan.HDBSCAN(min_samples=2, min_cluster_size=2)
 
     cv = CountVectorizer(stop_words="english", min_df=2)
@@ -502,17 +511,18 @@ def main():
         umap_model=umap_model,
         hdbscan_model=hdbscan_model
     )
-    bertopic_model.fit_transform(bert_pp)
+    _, bert_topics = bertopic_model.fit_transform(bert_pp)
 
     evaluator = TopicEvaluationSuite(texts=pp_docs)
     comparison_df = evaluator.compare_models({
         "LDA": (classic_LDA, "lda"),
         "prodLDA": (prodLDA, "prodlda"),
-        # "LLM": (tm_agent, "llm"),
-        "BERTopic": (bertopic_model, "bertopic")
+        "BERTopic": (bertopic_model, "bertopic"),
+        "LLM": (tm_agent, "llm"),
     })
     comparison_df.to_csv("data/comparison.csv", index=False)
     print(comparison_df)
+    evaluator.visualize_comparison(comparison_df)
 
 if __name__ == "__main__":
     main()

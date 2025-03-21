@@ -8,7 +8,7 @@ Topic labels selection should be based on:
 </think>
 <Rules>
 Follow these rules strictly:
-    - Each topic should be at most *3 words long* also counting stopwords;
+    - Each topic should be at most *3 words long* including stopwords;
     - Do not provide any explanations, elaborations, or additional text in the output; 
     - All your responses must only be a bolded bullet-list (example: - **label**);
     - If the extracted text does not fit the previous constraints, rewrite it to match them. Ensure you only return the list of topics and nothing else.

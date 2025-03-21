@@ -13,7 +13,7 @@ from gensim.corpora import Dictionary
 from gensim.models import CoherenceModel
 from typing import List
 
-print(torch.cuda.is_available())
+print("CUDA:", torch.cuda.is_available())
 
 
 
@@ -100,16 +100,14 @@ class ProdLDA(nn.Module):
     def train(
             self,
             docs,
-            device,
             num_epochs : int = 50,
             learning_rate : float = 1e-2,
-            optimizer = pyro.optim.Adam):
+            optimizer = pyro.optim.Adam,
+            device = "cpu",
+            save : bool = False):
         
         # Training
         pyro.clear_param_store()
-
-        
-        self.to(device)
 
         opt_params = {"lr":learning_rate, "betas":(0.95, 0.999)}
         optimizer = torch.optim.AdamW
@@ -134,19 +132,18 @@ class ProdLDA(nn.Module):
             print("Exiting training early")
 
         # saving model
-        import time
+        if save:
+            import time
 
-        t = time.localtime()
-        current_time = time.strftime("%H:%M:%S", t)
-        model_name = f"prodLDA_model_{current_time}.pt"
-        optimizer_name = f"prodLDA_optimizer_{current_time}.pt"
-        torch.save(self.state_dict(), f"data/results/prodLDA{model_name}")
-        torch.save(scheduler.get_state(), f"data/results/prodLDA{optimizer_name}")
+            t = time.localtime()
+            current_time = time.strftime("%H:%M:%S", t)
+            model_name = f"prodLDA_model_{current_time}.pt"
+            optimizer_name = f"prodLDA_optimizer_{current_time}.pt"
+            torch.save(self.state_dict(), f"data/results/prodLDA{model_name}")
+            torch.save(scheduler.get_state(), f"data/results/prodLDA{optimizer_name}")
 
         return self
-
-### TRAINING ###
-    
+        
 
 class UN_data(Dataset):
     def __init__(self, 
@@ -242,8 +239,9 @@ def get_avg_coherence(topics, bow, dct):
 
 
 def main():
-    # dct, bow = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))  ### right order for linux
-    bow, dct = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))
+    dct, bow = pp.load_pp("data/UN_PP/", ("bow.pkl", "dictionary.dict"))  ### right order for linux
+    if not isinstance(dct, Dictionary):
+        bow, dct = dct, bow
     bow = bow[:500]
     good_ids = set()
     for doc in bow:
@@ -258,34 +256,37 @@ def main():
     vocab_size = len(dct)
 
     # setting global variables
-    seed = 42
-    torch.manual_seed(seed)
-    pyro.set_rng_seed(seed)
+    SEED = 42
+    torch.manual_seed(SEED)
+    pyro.set_rng_seed(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Hyperparams
     num_topics = 20
     batch_size = 32
-    learning_rate = 1e-2
+    learning_rate = 3e-3
     num_epochs = 150
+    hidden = 256
+    dropout = 0.1
 
     dataloader = get_dataloader(bow=bow, vocab_size=vocab_size, batch_size=batch_size, dct=dct)
 
     prodLDA = ProdLDA(
         vocab_size=vocab_size,
         num_topics=num_topics,
-        hidden=512,
-        dropout=0.2
-    )
+        hidden=hidden,
+        dropout=dropout
+    ).to(device)
 
     prodLDA.train(
         docs=dataloader,
-        device=device,
         learning_rate=learning_rate,
-        num_epochs=num_epochs
+        num_epochs=num_epochs,
+        device=device,
+        save=False,
     )
 
-    
+    get_avg_coherence(get_topics(prodLDA, dct), bow, dct)
 
 
 if __name__ == "__main__":

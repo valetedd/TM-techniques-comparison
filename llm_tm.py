@@ -19,38 +19,42 @@ import requests
 
 
 class LLM_TopicModel():
-    def __init__(self, settings, model, sys : bool = False, labelling : bool = False):
+    def __init__(self, 
+                 model, 
+                 sys_p : str = None, 
+                 base_p : str = None,
+                 merge_p : str = None,
+                 labelling_p : str = None,
+                 n_topics : int = 2,
+                 n_shots : str = "",
+                 seed_topics : List[str] = "",
+                 options : dict = None,
+                 ):
 
         self.status = self._check_ollama_reqs(model)
         self.client = ollama.Client()
         self.model = model
-        self.final_topics = None
+        self.topics = None
 
-        if sys:
-            sys_p = settings["system_prompt"]["content"]
+        if sys_p:
             self.sys_prompt = self._get_prompt(sys_p)
 
-        if labelling:
-            self.labelling_prompt = self._get_prompt(settings["labelling_prompt"]["content"])
+        if labelling_p:
+            self.labelling_prompt = self._get_prompt(labelling_p)
 
-        base_p = settings["base_prompt"]["content"]
-        self.base_prompt = self._get_prompt(base_p)
+        if base_p:
+            self.base_prompt = self._get_prompt(base_p)
 
-        self.merge_prompt = self._get_prompt(settings["merge_prompt"]["content"])
-        self.n_topics = settings["merge_prompt"]["n_topics"]
+        if merge_p:
+            self.merge_prompt = self._get_prompt(merge_p)
 
-        try:
-            few_shots = settings["base_prompt"]["fs"]
-            self.fs = self._get_prompt(few_shots)
-            
+        self.n_topics = n_topics
+        self.opt = options if options else {}
 
-            self.st = settings["base_prompt"]["seed_topics"]
-            self.opt = settings["options"]
+        
+        self.fs = self._get_prompt(n_shots) if n_shots else ""
 
-        except KeyError:
-            print("Few shots or seed topics not found in settings. Please provide them.")
-            self.fs = ""
-            self.st = ""  
+        self.st = seed_topics if seed_topics else ""
 
 
     def _check_ollama_reqs(self, model_name):
@@ -80,32 +84,53 @@ class LLM_TopicModel():
     
     def label_topics(self, topics):
 
-        self.client.chat(model=self.model, messages={"role" : "system", "content" : self.labelling_prompt})
+        ########
+        def extract_label(content, pattern = None):
+            try:
+                if self.model == "deepseek-r1:8b":
+                    content = content.split("</think>")[1].strip()
+
+                pattern = r"\*\*Label:\*\*\s*(.*)"
+                result_1 = re.search(pattern, string=content)
+                if result_1:
+                    return result_1.group(1).strip()
+                
+                backup_pattern = r"\*\*\s*(.*)\s*\*\*"
+                result_2 = re.search(backup_pattern, string=content)
+                return result_2.group(1).strip() if result_2 else None
+
+            except:
+                print("Failed to extract topics. Continuing execution")
+                return None
+        ########
+
+        self.client.chat(model=self.model, messages=[{"role" : "system", "content" : self.labelling_prompt}])
+
         labels = []
         for topic in topics:
             print(f"Labeling topic: {topic}")
-            resp = self.client.generate(model=self.model, prompt=f"{topic}. Label this topic", options=self.opt)["response"]
+            resp = self.client.generate(model=self.model, prompt=f"Assign a label to this topic represention in the requested format. Input: {topic}", options=self.opt)["response"]
             print(resp)
-            label = self._extract_label(resp)
+            label = extract_label(resp)
             print(f"Extracted: {label}")
             labels.append(label)
         return labels
 
 
-    def _extract_topic(self, content, pattern = None):
-        try:
-            content = content.split("</think>")[1] # making sure to only target the response
-
-            if not pattern:
-                pattern = r"(?:\d+\.|\-)\s\*\*(.*?)\*\*"
-            topics = re.findall(pattern, string=content)
-        except IndexError:
-            print("No topics found")
-            return None
-        return topics
-
-
     def get_topics(self, corpus : List[str]):
+
+        def extract_topic(content, pattern = None):
+            try:
+                if self.model == "deepseek-r1:8b":
+                    content = content.split("</think>")[1].strip() # making sure to only target the response
+
+                if not pattern:
+                    pattern = r"\*\*(.*)\*\*"
+                topics = re.findall(pattern, string=content)
+            except IndexError:
+                print("Failed to extract topics. Continuing execution")
+                return None
+            return topics
 
         raw_topics = []
         for i in range(len(corpus)):
@@ -116,44 +141,47 @@ class LLM_TopicModel():
             response = self.client.generate(model=self.model, prompt=interpolated_prompt, options=self.opt)["response"]
             print(response)
             print(f"\n{'-'*10}END OF RESPONSE{'-'*10}\n")
-            topics = self._extract_topic(response)
+            topics = extract_topic(response)
             if i == 0 and not topics:
                 continue
             print(topics)
-            raw_topics.extend(topics)
+            if topics:
+                raw_topics.extend(topics)
 
-        merged_topics = self.final_topics = self.merge_topics(raw_topics)
+        if not raw_topics:
+            raise ValueError("No topics found. Try restaring the process or usng a different prompt.") 
+
+        merged_topics = self.topics = self.merge_topics(raw_topics)
         return raw_topics, merged_topics
     
 
-    def merge_topics( self, topics : List[str]):
+    def merge_topics(self, topics : List[str]):
+
+        def extract_labels(content, pattern = None):
+            try:
+                if self.model == "deepseek-r1:8b":
+                    content = content.split("</think>")[1].strip()
+
+                if not pattern:
+                    pattern = r"\*\*(.*)\*\*"
+                labels = re.findall(pattern, string=content)
+
+            except IndexError:
+                print("Failed to extract topics. Continuing execution")
+                return None
+            return labels
         
         prompt = self.merge_prompt.format(NUM_TOPICS=self.n_topics, TOPICS_LIST=topics)
         topics = list(set(topics)) # dedupe
         print(f"Merging {len(topics)} topics")
         resp = self.client.generate(model=self.model, prompt=prompt, options=self.opt)["response"]
         print(resp)
-        merged_topics = self._extract_label(resp)
+        merged_topics = extract_labels(resp)
         print(f"Extracted: {merged_topics}")
         return merged_topics
 
 
-    def _extract_label(self, content, pattern = None):
-        try:
-            content = content.split("</think>")[1].strip()
-
-            if not pattern:
-                pattern = r"^Topic\s+\d+\s*:$"
-            clean_labels = re.sub(pattern, repl="", string=content)
-            if "," in clean_labels:
-                sep = ","
-            elif "\n" in clean_labels:
-                sep = "\n"
-            labels = [match.split(":")[1].strip() for match in clean_labels.split(sep)]
-        except IndexError:
-            print("No topics found")
-            return None
-        return labels
+    
 
 
 def main():
@@ -161,34 +189,30 @@ def main():
     # deepseek-r1:8b
     MODEL_NAME = "deepseek-r1:8b"
 
-    settings = {
-        "system_prompt" : {
-            "content" : "prompts/sys_prompt.txt"
-        },
-        "base_prompt":{
-            "content" : "prompts/tm_prompt.txt",
-            "seed_topics" : ["International Relations", "War", "Peace", "Cooperation", "Countries"],
-            "fs" : "prompts/few_shots.txt"
-        },
-        "merge_prompt":{
-            "content" : "prompts/topic_merge.txt",
-            "n_topics" : 2
-        },
-        "options" : {
-            "temperature" : 0.0
-            }
-    }
+    options =  {"temperature" : 0.0}
 
-    tm_agent = LLM_TopicModel(model=MODEL_NAME, settings=settings)
+    tm_agent = LLM_TopicModel(model=MODEL_NAME,
+                              base_p="prompts/tm_prompt.txt",
+                              merge_p="prompts/topic_merge.txt",
+                              labelling_p="prompts/topic_labelling.txt",
+                              n_topics=10,
+                              n_shots="prompts/few_shots.txt",
+                              seed_topics=["International Relations", "War", "Peace", "Cooperation", "Countries"],
+                              options=options)
 
-    df = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")[:2]
+    df = pd.read_csv(filepath_or_buffer="data/UN_speeches/UNGDC_1946-2023.csv")[:5]
     texts_list = df["text"].tolist()
 
 
     _, topics = tm_agent.get_topics(texts_list)
     print(f"Retrived topics: {topics}")
+
+    labels = tm_agent.label_topics(topics)
+    result = {topics[i] : labels[i] for i in range(len(topics))}
+
     with open("data/results/llm_tm.txt", mode="w", encoding="utf-8") as f:
-        f.write(str(topics))
+        f.write(str(result))
+    
 
 if __name__ == "__main__":
     main()
