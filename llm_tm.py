@@ -152,6 +152,13 @@ class LLM_TopicModel():
             raise ValueError("No topics found. Try restaring the process or usng a different prompt.") 
 
         merged_topics = self.topics = self.merge_topics(raw_topics)
+
+        try:
+            with open("data/results/llm_log.txt", "w", encoding="utf-8") as f:
+                f.write(str(merged_topics))
+        except:
+            print("Failed to write topics to log")
+
         return raw_topics, merged_topics
     
 
@@ -206,12 +213,6 @@ def main():
 
     _, topics = tm_agent.get_topics(texts_list)
     print(f"Retrived topics: {topics}")
-
-    labels = tm_agent.label_topics(topics)
-    result = {topics[i] : labels[i] for i in range(len(topics))}
-
-    with open("data/results/llm_tm.txt", mode="w", encoding="utf-8") as f:
-        f.write(str(result))
     
 
 if __name__ == "__main__":

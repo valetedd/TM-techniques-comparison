@@ -85,8 +85,8 @@ class ProdLDA(nn.Module):
             logtheta = pyro.sample(
                 "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1))
             theta = F.softmax(logtheta, -1) # Topic distributions on the batch
-            count_param = self.decoder(theta)
-            total_count = int(docs.sum(-1).max())
+            count_param = self.decoder(theta) # Product of experts theta*beta (linear layer decoder weight)
+            total_count = int(docs.sum(-1).max()) # getting max doc length as constant parameter for the multinomial
             pyro.sample(
                 'obs',
                 dist.Multinomial(total_count, count_param),
@@ -97,7 +97,7 @@ class ProdLDA(nn.Module):
         # beta matrix elements are the weights of the FC layer on the decoder
         return self.decoder.beta.weight.cpu().detach().T
     
-    def train(
+    def train_model(
             self,
             docs,
             num_epochs : int = 50,
@@ -107,6 +107,8 @@ class ProdLDA(nn.Module):
             save : bool = False):
         
         # Training
+        self.train()
+
         pyro.clear_param_store()
 
         opt_params = {"lr":learning_rate, "betas":(0.95, 0.999)}
@@ -141,7 +143,6 @@ class ProdLDA(nn.Module):
             optimizer_name = f"prodLDA_optimizer_{current_time}.pt"
             torch.save(self.state_dict(), f"data/results/prodLDA{model_name}")
             torch.save(scheduler.get_state(), f"data/results/prodLDA{optimizer_name}")
-
         return self
         
 
@@ -167,7 +168,7 @@ class UN_data(Dataset):
     def __len__(self):
         return len(self.data)
     
-    def __getitem__(self, idx : int):
+    def __getitem__(self, idx : int): # dense vector representation
         doc = self.data[idx]
         dense = torch.zeros(self.min_len)
         for id, count in doc:
@@ -243,14 +244,15 @@ def main():
     if not isinstance(dct, Dictionary):
         bow, dct = dct, bow
     bow = bow[:500]
-    good_ids = set()
+
+    good_ids = set() # getting IDs present in the bow slice
     for doc in bow:
         for idx, _ in doc:
             good_ids.add(idx)
 
-    dct.filter_tokens(good_ids=list(good_ids))
+    dct.filter_tokens(good_ids=list(good_ids)) # filtering vocabulary
 
-    if not dct.id2token:
+    if not dct.id2token: # ensuring the id-token mapping is not empty due to bugs
         dct.id2token = {v: k for k, v in dct.token2id.items()}
 
     vocab_size = len(dct)
@@ -278,7 +280,7 @@ def main():
         dropout=dropout
     ).to(device)
 
-    prodLDA.train(
+    prodLDA.train_model(
         docs=dataloader,
         learning_rate=learning_rate,
         num_epochs=num_epochs,

@@ -9,6 +9,18 @@ import seaborn as sns
 import torch
 import random
 import preprocessing as pp
+from nltk.corpus import stopwords
+import nltk
+nltk.download('stopwords')
+import argparse
+
+# CLI interface
+parser = argparse.ArgumentParser(description="Evaluation suite execution")
+parser.add_argument('--small', action='store_true',
+                    help="Work on COVID subset")
+args = parser.parse_args()
+
+
 
 class TopicEvaluationSuite:
     """
@@ -47,7 +59,8 @@ class TopicEvaluationSuite:
             model_type: Type of model ('lda', 'prodlda', 'bertopic', 'llm')
             
         Returns:
-            List of topics, where each topic is a list of top n words
+            List of topics, where each topic is a list of top n words;
+            For LMM_TM: list of topic labels
         """
         if not n:
             n = self.n_top
@@ -133,18 +146,19 @@ class TopicEvaluationSuite:
         if not n_words: 
             n_words = self.n_top
 
+
         topics = self._get_top_n_words(topic_model, n=n_words, model_type=model_type)
         print(model_type)
         print(topics)
         
-    
-        # Flatten the list of top words if needed
-        all_words = [word for topic in topics for word in topic] if not model_type.lower() == 'llm' else topics
+        is_llm = model_type.lower() == 'llm'
+        # Flatten the list of top words 
+        all_words = [word for topic in topics for word in topic] if not is_llm else topics # llm topics are already flattened
         # Count unique words
         unique_words = set(all_words)
         
         # Diversity = unique words / total words
-        diversity = len(unique_words) / len(all_words)   # Add a small value to avoid division by zero
+        diversity = len(unique_words) / len(all_words) 
         
         return diversity
     
@@ -164,16 +178,20 @@ class TopicEvaluationSuite:
         if not n_words:
             n_words = self.n_top
 
-        if model_type.lower() == 'llm':
-            print("Coherence calculation not available for LLM-generated topics")
-            return None
         
         topics = self._get_top_n_words(topic_model, n=n_words, model_type=model_type)
         
+        if model_type.lower() == 'llm':
+            sw = stopwords.words("english")
+            topics = [[w.lower() for w in label.split(" ") if not w.lower() in sw] for label in topics]
+
         topic_count = len(topics)
         if topic_count <= 1:
             return 0.0
-            
+        
+
+
+        # Jaccard similarity scores
         overlaps = []
         for i in range(topic_count):
             for j in range(i+1, topic_count):
@@ -183,72 +201,6 @@ class TopicEvaluationSuite:
                 overlaps.append(overlap)
                 
         return np.mean(overlaps)
-    
-    def compute_pairwise_distances(self, topic_model, model_type, metric='cosine', method='embeddings', embedding_model=None):
-        """
-        Compute pairwise distances between topic vectors.
-        
-        Args:
-            topic_model: The trained topic model
-            model_type: The type of model
-            metric: Distance metric ('cosine', 'euclidean', etc)
-            method: How to represent topics ('word_dist', 'embeddings')
-            embedding_model: If method='embeddings', a model to get word embeddings
-            
-        Returns:
-            Matrix of pairwise distances
-        """
-        if model_type.lower() == 'llm':
-            print("Coherence calculation not available for LLM-generated topics")
-            return None
-        
-        topics = self._get_top_n_words(topic_model, model_type=model_type)
-        n_topics = len(topics)
-        
-        if method == 'word_dist':
-            # Get word distributions for each topic
-            word_set = set(word for topic in topics for word in topic)
-            word_to_idx = {word: idx for idx, word in enumerate(word_set)}
-            
-            # Create sparse word vectors for each topic
-            vectors = np.zeros((n_topics, len(word_set)))
-            for i, topic in enumerate(topics):
-                for word in topic:
-                    vectors[i, word_to_idx[word]] += 1
-        
-        elif method == 'embeddings':
-            if embedding_model is None:
-                raise ValueError("Embedding model must be provided")
-                
-            # Get embeddings for each topic
-            vectors = []
-            for topic_words in topics:
-                topic_embeddings = []
-                for word in topic_words:
-                    try:
-                        topic_embeddings.append(embedding_model[word])
-                    except KeyError:
-                        continue  # Skip words not in the embedding model
-                        
-                if not topic_embeddings:
-                    vectors.append(np.zeros(embedding_model.vector_size))
-                else:
-                    vectors.append(np.mean(topic_embeddings, axis=0))
-                    
-            vectors = np.array(vectors)
-        
-        else:
-            raise ValueError(f"Unknown method: {method}")
-            
-        # Compute pairwise similarity matrix
-        if metric == 'cosine':
-            similarity_matrix = cosine_similarity(vectors)
-            distance_matrix = 1 - similarity_matrix
-        else:
-            from sklearn.metrics import pairwise_distances
-            distance_matrix = pairwise_distances(vectors, metric=metric)
-            
-        return distance_matrix
     
     def autolabel_topic(self, topic_model, model_type, llm_name = 'deepseek-r1:8b', settings=None) -> List[str]:
         """
@@ -359,7 +311,7 @@ class TopicEvaluationSuite:
         plt.xticks(rotation=45)
         plt.legend(title='Metric')
         plt.tight_layout()
-        
+        plt.show()
         return ax
     
     def top_words_table(self, models_dict: Dict[str, Tuple], n_words=10) -> pd.DataFrame:
@@ -406,17 +358,21 @@ def get_data_in_timeframe(df : pd.DataFrame, timeframe : tuple[str]):
 
 
 def main():
+    
     # data
-    data = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv")
-    covid_data = get_data_in_timeframe(data, timeframe=["2020", "2022"]) # getting covid data
+    df = pd.read_csv("data/UN_speeches/UNGDC_1946-2023.csv")
 
-    random.seed(42)
-    sampled_data = random.sample(covid_data, k=200)
+    if args.small:
+        covid_data = get_data_in_timeframe(df, timeframe=["2020", "2022"]) # getting covid data
+        random.seed(42)
+        data = random.sample(covid_data, k=200)
+    else:
+        data = df["text"].to_list()
 
-    pp_docs = pp.basic_pp(corpus=sampled_data,
+    pp_docs = pp.basic_pp(corpus=data,
                           n_grams="tri-grams")
     dct, bow = pp.BOW_pp(docs=pp_docs, 
-                         filter_extr=False, 
+                         filter_extr=True, 
                          from_preprocessed=True)
     # ***MODELS*** 
 
@@ -463,7 +419,7 @@ def main():
     )
 
 
-    prodLDA.train(
+    prodLDA.train_model(
         docs=dataloader,
         num_epochs=NUM_EPOCHS,
         learning_rate=LEARNING_RATE, 
@@ -486,7 +442,7 @@ def main():
                               n_shots="prompts/few_shots.txt",
                               seed_topics=["International Relations", "War", "Peace", "Cooperation", "Countries"],
                               options=options)
-    tm_agent.get_topics(sampled_data)
+    tm_agent.get_topics(data)
 
     # bertopic 
     from bertopic import BERTopic
@@ -494,12 +450,12 @@ def main():
     import umap
     import hdbscan
 
-
+    # bertopic only accepts list of strings
     bert_pp = [" ".join(doc) for doc in pp_docs]
 
     # Lower params for reduced size corpus
-    umap_model = umap.UMAP(n_neighbors=5, metric='cosine')
-    hdbscan_model = hdbscan.HDBSCAN(min_samples=2, min_cluster_size=2)
+    umap_model = umap.UMAP(n_neighbors=5, metric='cosine') if args.small else None
+    hdbscan_model = hdbscan.HDBSCAN(min_samples=2, min_cluster_size=2) if args.small else None
 
     cv = CountVectorizer(stop_words="english", min_df=2)
 
@@ -513,7 +469,7 @@ def main():
     )
     _, bert_topics = bertopic_model.fit_transform(bert_pp)
 
-    evaluator = TopicEvaluationSuite(texts=pp_docs)
+    evaluator = TopicEvaluationSuite(texts=pp_docs, eval_top=10)
     comparison_df = evaluator.compare_models({
         "LDA": (classic_LDA, "lda"),
         "prodLDA": (prodLDA, "prodlda"),
