@@ -6,6 +6,7 @@
 <Rules>
 Strictly follow these rules:
 - Each consolidated topic should be at most 3 words and bolded (example: **topic**);
+- Number each topic to keep count;
 - Do not provide any explanations, elaborations, or additional text;    
 - Only return the consolidated topic list
 </Rules>

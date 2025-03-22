@@ -1,17 +1,17 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
 from gensim.models.coherencemodel import CoherenceModel
 import gensim.corpora as corpora
 from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
 import seaborn as sns
-import torch
 import random
 import preprocessing as pp
 from nltk.corpus import stopwords
 import nltk
+import torch
 nltk.download('stopwords')
+from gensim.corpora import Dictionary
 import argparse
 
 # CLI interface
@@ -89,8 +89,8 @@ class TopicEvaluationSuite:
                     
         elif model_type.lower() == 'llm':
             # For LLM-generated topics, assuming a list of labels
-            print(f"LLM topics: {topic_model.final_topics}")
-            return topic_model.final_topics
+            print(f"LLM topics: {topic_model.topics}")
+            return topic_model.topics
                 
         return topics
     
@@ -366,24 +366,29 @@ def main():
         covid_data = get_data_in_timeframe(df, timeframe=["2020", "2022"]) # getting covid data
         random.seed(42)
         data = random.sample(covid_data, k=200)
-    else:
-        data = df["text"].to_list()
-
-    pp_docs = pp.basic_pp(corpus=data,
+        pp_docs = pp.basic_pp(corpus=data,
                           n_grams="tri-grams")
-    dct, bow = pp.BOW_pp(docs=pp_docs, 
+        dct, bow = pp.BOW_pp(docs=pp_docs, 
                          filter_extr=True, 
                          from_preprocessed=True)
+    
+    else:
+        data = df["text"].to_list()
+        dct, bow = pp.load_pp("data/UN_PP", ("bow.pkl", "dictionary.dict"))
+        pp_docs = pp.load_pp("data/UN_PP", ("tokenized.pkl",))
+        if not isinstance(dct, Dictionary):
+            bow, dct = dct, bow
+    
     # ***MODELS*** 
 
-    NUM_TOPICS = 20
+    NUM_TOPICS = 100
 
     # traditional LDA
     from LDA_baseline import train_LDA
 
     ITERATIONS = 1000
     PASSES = 20
-    CHUNKS = 100
+    CHUNKS = 200
     classic_LDA = train_LDA(
         bow_data=bow,
         dct=dct,
@@ -397,11 +402,11 @@ def main():
     # prodLDA
     from prodLDA import ProdLDA, get_dataloader
 
-    HIDDEN = 256    
+    HIDDEN = 1024
     DROP_RATE = 0.2
     LEARNING_RATE = 1e-2
-    NUM_EPOCHS = 150
-    BATCH_SIZE = 32
+    NUM_EPOCHS = 100
+    BATCH_SIZE = 64
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     prodLDA = ProdLDA(
@@ -428,21 +433,22 @@ def main():
 
 
     # Generative topic mdodelling
-    from llm_tm import LLM_TopicModel
+    # from llm_tm import LLM_TopicModel
 
-    AGENT = "deepseek-r1:8b"
+    # AGENT = "deepseek-r1:8b"
 
-    options =  {"temperature" : 0.0}
+    # options =  {"temperature" : 0.0} # no randomness
 
-    tm_agent = LLM_TopicModel(model=AGENT,
-                              base_p="prompts/tm_prompt.txt",
-                              merge_p="prompts/topic_merge.txt",
-                              labelling_p="prompts/topic_labelling.txt",
-                              n_topics=20,
-                              n_shots="prompts/few_shots.txt",
-                              seed_topics=["International Relations", "War", "Peace", "Cooperation", "Countries"],
-                              options=options)
-    tm_agent.get_topics(data)
+    # tm_agent = LLM_TopicModel(model=AGENT,
+    #                           base_p="prompts/tm_prompt.txt",
+    #                           merge_p="prompts/topic_merge.txt",
+    #                           labelling_p="prompts/topic_labelling.txt",
+    #                           n_topics=20,
+    #                           n_shots="prompts/few_shots.txt",
+    #                           seed_topics=["International Relations", "War", "Peace", "Cooperation", "Countries"],
+    #                           options=options)
+    # # tm_agent.get_topics(data)
+    
 
     # bertopic 
     from bertopic import BERTopic
@@ -467,18 +473,18 @@ def main():
         umap_model=umap_model,
         hdbscan_model=hdbscan_model
     )
-    _, bert_topics = bertopic_model.fit_transform(bert_pp)
+    bertopic_model.fit_transform(bert_pp)
+    
 
     evaluator = TopicEvaluationSuite(texts=pp_docs, eval_top=10)
     comparison_df = evaluator.compare_models({
         "LDA": (classic_LDA, "lda"),
         "prodLDA": (prodLDA, "prodlda"),
         "BERTopic": (bertopic_model, "bertopic"),
-        "LLM": (tm_agent, "llm"),
+        # "LLM": (tm_agent, "llm"),
     })
-    comparison_df.to_csv("data/comparison.csv", index=False)
+    comparison_df.to_csv("data/comparison_whole.csv", index=False)
     print(comparison_df)
-    evaluator.visualize_comparison(comparison_df)
 
 if __name__ == "__main__":
     main()

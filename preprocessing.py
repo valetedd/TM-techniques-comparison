@@ -90,7 +90,7 @@ def get_pp_data(data_path:str, func:Callable, **kwargs):
     return pp_data
 
 
-def load_pp(folder : str | Path, file_or_files : str | Iterable):
+def load_pp(folder : str | Path, file_or_files : Iterable[str]):
     if not isinstance(folder, (str, Path)):
         raise TypeError("'folder' must be a str or a Path object")
     path = Path(folder) if isinstance(folder, str) else folder
@@ -100,7 +100,7 @@ def load_pp(folder : str | Path, file_or_files : str | Iterable):
 
         if f.name not in file_or_files:
             continue
-        
+
         path = os.path.join(folder, f.name)
 
         if f.name.endswith("pkl"):
@@ -111,10 +111,8 @@ def load_pp(folder : str | Path, file_or_files : str | Iterable):
         elif f.name.endswith("dict"):
             file = Dictionary.load(path)
             files.append(file)
-        
-    if len(files) != len(file_or_files):
+    if len(files) < len(file_or_files):
         raise ValueError("Not all specified files were found in the folder")
-
     return tuple(files)
         
 
