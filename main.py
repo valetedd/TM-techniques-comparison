@@ -378,7 +378,6 @@ def main():
         pp_docs = pp.load_pp("data/UN_PP", ("tokenized.pkl",))
         if not isinstance(dct, Dictionary):
             bow, dct = dct, bow
-    
     # ***MODELS*** 
 
     NUM_TOPICS = 100
@@ -386,7 +385,7 @@ def main():
     # traditional LDA
     from LDA_baseline import train_LDA
 
-    ITERATIONS = 1000
+    ITERATIONS = 100
     PASSES = 20
     CHUNKS = 200
     classic_LDA = train_LDA(
@@ -402,7 +401,7 @@ def main():
     # prodLDA
     from prodLDA import ProdLDA, get_dataloader
 
-    HIDDEN = 1024
+    HIDDEN = 512
     DROP_RATE = 0.2
     LEARNING_RATE = 1e-2
     NUM_EPOCHS = 100
@@ -420,7 +419,7 @@ def main():
         bow=bow,
         vocab_size=len(dct),
         batch_size=BATCH_SIZE,
-        dct=dct
+        dct=dct,
     )
 
 

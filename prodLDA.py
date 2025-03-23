@@ -192,7 +192,8 @@ def get_dataloader(bow, vocab_size : int, batch_size : int, dct = None):
         dataset=dataset, 
         batch_size=batch_size, 
         shuffle=True, 
-        # num_workers=
+        num_workers=0,
+        pin_memory=True
         )
     return dataloader
 

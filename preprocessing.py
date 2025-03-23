@@ -113,7 +113,7 @@ def load_pp(folder : str | Path, file_or_files : Iterable[str]):
             files.append(file)
     if len(files) < len(file_or_files):
         raise ValueError("Not all specified files were found in the folder")
-    return tuple(files)
+    return tuple(files) if len(files) > 1 else files[0]
         
 
 def main():
