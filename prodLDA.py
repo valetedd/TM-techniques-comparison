@@ -66,7 +66,7 @@ class ProdLDA(nn.Module):
         self.encoder = Encoder(vocab_size, num_topics, hidden, dropout)
         self.decoder = Decoder(vocab_size, num_topics, dropout)
 
-    def guide(self, docs): # getting the approximate posterior and sampling theta
+    def guide(self, docs): # getting the approximate posterior 
         pyro.module("encoder", self.encoder)
         with pyro.plate("documents", docs.shape[0]):
             # Dirichlet prior 𝑝(𝜃|𝛼) is replaced by a logistic-normal distribution,
@@ -160,7 +160,7 @@ class UN_data(Dataset):
             self.data = dct_and_data[1]
         else:
             if not dct:
-                raise TypeError("If the data was already processed, a gensim Dictionary has to be passed to the 'dct' argument")
+                raise TypeError("If the data was already processed, a gensim DictionGary has to be passed to the 'dct' argument")
             self.dct = dct
             self.data = corpus
         print(f"Initialized dataset with:\n\t - {len(self.data)} documents;\n\t - A vocab of {len(self.dct)};\n\t - {self.num_tokens} tokens")
